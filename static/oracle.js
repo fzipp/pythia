@@ -66,7 +66,7 @@ function hideOnEscape(menu, out) {
 
 function hideOnClickOff(menu, code) {
   $('body').click(function(e) {
-      if (!$(e.target).closest(code).length) {
+    if (!$(e.target).closest(code).length) {
       menu.hide();
     }
   });
