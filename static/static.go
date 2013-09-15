@@ -20,7 +20,7 @@ var Files = map[string]string{
     <h1>Scope {{.Scope}}</h1>
     <ul class="files">
       {{range .Files}}
-	  <li><a href="source?file={{.}}">{{.}}</a></li>
+      <li><a href="source?file={{.}}">{{.}}</a></li>
       {{end}}
     </ul>
   </body>
@@ -46,11 +46,11 @@ var Files = map[string]string{
       <h1>Source file {{.FileName}}</h1>
       <p>Select or click within the source code to consult the oracle.</p>
       {{template "home-link"}}
-	  <table class="code">
+      <table class="code">
         <tr>
-		  <td class="nums">
-			{{range seq 1 .NLines}}
-			<span id="L{{.}}">{{.}}</span><br>
+          <td class="nums">
+            {{range seq 1 .NLines}}
+            <span id="L{{.}}">{{.}}</span><br>
             {{end}}
           </td>
           <td class="lines" id="code">{{printf "%s" .Code}}</td>
@@ -78,10 +78,10 @@ var Files = map[string]string{
         var out = $('#out');
         out.on('change', function() {
           layout.open('south');
-	    });
+        });
         out.on('esc', function() {
           layout.close('south');
-		});
+        });
         oracle.oraclify($('#code'), out, '{{.FileName}}');
       });
     </script>
@@ -241,17 +241,17 @@ function oraclify(code, out, file) {
     if (!isRangeWithinElement(sel, code)) {
       return;
     }
-	menu.unbind('select').on('select', function(e, mode) {
+    menu.unbind('select').on('select', function(e, mode) {
       menu.hide();
       changeContent(out, message.wait);
       // FIXME: these are character offsets, the oracle wants byte offsets
-	  query(mode, pos(file, sel.startOffset, sel.endOffset), 'plain')
-		.done(function(data) {
-		  onResult(out, data);
+      query(mode, pos(file, sel.startOffset, sel.endOffset), 'plain')
+        .done(function(data) {
+          onResult(out, data);
         })
-	    .fail(function(e) {
+        .fail(function(e) {
           changeContent(out, message.error);
-	    });
+        });
     });
     menu.css({top: e.pageY, left: e.pageX});
     menu.show();
@@ -266,7 +266,7 @@ function hideOnEscape(menu, out) {
       if (menu.is(':visible')) {
         menu.hide();
         return;
-	  }
+      }
       out.trigger('esc');
     }
   });
@@ -307,7 +307,7 @@ function appendLinkified(element, text) {
       var fromCol = match[3];
       var toLine = match[4];
       var toCol = match[5];
-	  var rest = match[6];
+      var rest = match[6];
       var link = sourceLink(file, fromLine, arrow + rest);
       element.append(link).append('\n');
       continue;
@@ -316,13 +316,13 @@ function appendLinkified(element, text) {
       var file = match[1];
       var line = match[2];
       var col = match[3];
-	  var rest = match[4];
+      var rest = match[4];
       var link = sourceLink(file, line, arrow + rest);
       element.append(link).append('\n');
       continue;
     }
     if (match = noAddress.exec(line)) {
-	  var rest = match[1];
+      var rest = match[1];
       element.append('  ' + rest + '\n');
       continue;
     }
