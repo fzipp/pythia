@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2013 Frederik Zipp. All rights reserved.
+  Use of this source code is governed by a BSD-style
+  license that can be found in the LICENSE file.
+-->
+
+{{define "home-link"}}<p class="home-link"><a href="/">Back to scope index</a></p>{{end}}
+
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>{{.FileName}} - Go source code oracle</title>
+    <link rel="stylesheet" href="static/style.css">
+  </head>
+  <body style="padding: 0;">
+    <div class="ui-layout-center">
+      <h1>Source file {{.FileName}}</h1>
+      <p>Select or click within the source code to consult the oracle.</p>
+      {{template "home-link"}}
+	  <table class="code">
+        <tr>
+		  <td class="nums">
+			{{range seq 1 .NLines}}
+			<span id="L{{.}}">{{.}}</span><br>
+            {{end}}
+          </td>
+          <td class="lines" id="code">{{printf "%s" .Code}}</td>
+        </tr>
+      </table>
+      {{template "home-link"}}
+    </div>
+    <div class="ui-layout-south">
+      <pre id="out"></pre>
+    </div>
+
+    <script src="static/jquery.min.js"></script>
+    <script src="static/jquery-ui.min.js"></script>
+    <script src="static/jquery-layout.min.js"></script>
+    <script src="static/oracle.js"></script>
+    <script>
+      $(document).ready(function() {
+        var layout = $('body').layout({
+          applyDefaultStyles: true,
+          south: {
+            size: 200,
+            initClosed: true
+          }
+        });
+        var out = $('#out');
+        out.on('change', function() {
+          layout.open('south');
+	    });
+        out.on('esc', function() {
+          layout.close('south');
+		});
+        oracle.oraclify($('#code'), out, '{{.FileName}}');
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2013 Frederik Zipp. All rights reserved.
+  Use of this source code is governed by a BSD-style
+  license that can be found in the LICENSE file.
+-->
+
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Go source code oracle</title>
+    <link rel="stylesheet" href="static/style.css">
+  </head>
+  <body>
+    <h1>Scope {{.Scope}}</h1>
+    <ul class="files">
+      {{range .Files}}
+	  <li><a href="source?file={{.}}">{{.}}</a></li>
+      {{end}}
+    </ul>
+  </body>
+</html>
