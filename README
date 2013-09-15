@@ -1,0 +1,6 @@
+Pythia is a web frontend for the Go source code oracle.
+
+To install, run
+  go get github.com/fzipp/pythia
+
+It requires a recent (=tip) version of the GOROOT libraries.
