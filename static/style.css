@@ -119,3 +119,15 @@ a:hover {
 .menu li:hover {
   background: #e0ebf5;
 }
+
+.button {
+  background: #e0ebf5;
+  border: 1px solid #375eab;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 10px;
+}
+
+.buttons {
+  margin: 20px;
+}

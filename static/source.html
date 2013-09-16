@@ -17,6 +17,10 @@
     <div class="ui-layout-center" id="content">
       <h1>Source file {{.FileName}}</h1>
       <p>Select or click within the source code to consult the oracle.</p>
+      <div class="buttons">
+        <span id="cgraph-button"></span>
+        <span id="impl-button"></span>
+      </div>
       {{template "home-link"}}
       <table class="code" id="source">
         <tr>
@@ -55,6 +59,8 @@
           layout.close('south');
         });
         oracle.init($('#source'), out, '{{.FileName}}');
+        oracle.makeQueryButton($('#cgraph-button'), 'callgraph');
+        oracle.makeQueryButton($('#impl-button'), 'implements');
       });
     </script>
   </body>

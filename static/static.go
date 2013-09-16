@@ -44,8 +44,14 @@ var Files = map[string]string{
   <body style="padding: 0;">
     <div class="ui-layout-center" id="content">
       <h1>Source file {{.FileName}}</h1>
+
       <p>Select or click within the source code to consult the oracle.</p>
+      <div class="buttons">
+        <span id="cgraph-button"></span>
+        <span id="impl-button"></span>
+      </div>
       {{template "home-link"}}
+
       <table class="code" id="source">
         <tr>
           <td class="nums">
@@ -83,6 +89,8 @@ var Files = map[string]string{
           layout.close('south');
         });
         oracle.init($('#source'), out, '{{.FileName}}');
+        oracle.makeQueryButton($('#cgraph-button'), 'callgraph');
+        oracle.makeQueryButton($('#impl-button'), 'implements');
       });
     </script>
   </body>
@@ -209,6 +217,18 @@ a:hover {
 .menu li:hover {
   background: #e0ebf5;
 }
+
+.button {
+  background: #e0ebf5;
+  border: 1px solid #375eab;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 10px;
+}
+
+.buttons {
+  margin: 20px;
+}
 `,
 	"oracle.js": `// Copyright 2013 Frederik Zipp.  All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -219,15 +239,15 @@ var oracle = (function() {
 'use strict';
 
 var modes = [
-  {id: 'describe', name: 'Describe', desc: 'Describe the expression at the current point.'},
-  {id: 'callees', name: 'Call targets', desc: 'Show possible callees of the function call at the current point.'},
-  {id: 'callers', name: 'Callers', desc: 'Show the set of callers of the function containing the current point.'},
-  {id: 'callgraph', name: 'Call graph', desc: 'Show the callgraph of the current program.'},
-  {id: 'callstack', name: 'Call stack', desc: 'Show an arbitrary path from a root of the call graph to the function containing the current point.'},
-  {id: 'freevars', name: 'Free variables', desc: 'Enumerate the free variables of the current selection.'},
-  {id: 'implements', name: 'Implements', desc: 'Describe the \'implements\' relation for types in the package containing the current point.'},
-  {id: 'peers', name: 'Channel peers', desc: 'Enumerate the set of possible corresponding sends/receives for this channel receive/send operation.'},
-  {id: 'referrers', name: 'Referrers', desc: 'Enumerate all references to the object denoted by the selected identifier.'}
+  {id: 'describe', sel: true, name: 'Describe', desc: 'Describe the expression at the current point.'},
+  {id: 'callees', sel: true, name: 'Call targets', desc: 'Show possible callees of the function call at the current point.'},
+  {id: 'callers', sel: true, name: 'Callers', desc: 'Show the set of callers of the function containing the current point.'},
+  {id: 'callgraph', sel: false, name: 'Call graph', desc: 'Show the callgraph of the current program.'},
+  {id: 'callstack', sel: true, name: 'Call stack', desc: 'Show an arbitrary path from a root of the call graph to the function containing the current point.'},
+  {id: 'freevars', sel: true, name: 'Free variables', desc: 'Enumerate the free variables of the current selection.'},
+  {id: 'implements', sel: false, name: 'Implements', desc: 'Describe the \'implements\' relation for types in the package containing the current point.'},
+  {id: 'peers', sel: true, name: 'Channel peers', desc: 'Enumerate the set of possible corresponding sends/receives for this channel receive/send operation.'},
+  {id: 'referrers', sel: true, name: 'Referrers', desc: 'Enumerate all references to the object denoted by the selected identifier.'}
 ];
 
 var message = {
@@ -257,15 +277,8 @@ function init(source, output, file) {
     }
     menu.unbind('select').on('select', function(e, mode) {
       menu.hide();
-      writeOutput(message.wait);
       // FIXME: these are character offsets, the oracle wants byte offsets
-      query(mode, pos(currentFile, sel.startOffset, sel.endOffset), 'plain')
-        .done(function(data) {
-          writeOutput(data);
-        })
-        .fail(function(e) {
-          writeOutput(message.error);
-        });
+      queryAction(mode, sel.startOffset, sel.endOffset);
     });
     menu.css({top: e.pageY, left: e.pageX});
     menu.show();
@@ -308,6 +321,17 @@ function selectedRange() {
 
 function isRangeWithinElement(range, elem) {
   return range.commonAncestorContainer.parentElement == elem[0];
+}
+
+function queryAction(mode, start, end) {
+  writeOutput(message.wait);
+  return query(mode, pos(currentFile, start, end), 'plain')
+    .done(function(data) {
+      writeOutput(data);
+    })
+    .fail(function(e) {
+      writeOutput(message.error);
+    });
 }
 
 function query(mode, pos, format) {
@@ -439,7 +463,10 @@ function countLines(s) {
 
 function modeMenu() {
   var m = $('<ul class="menu">').hide();
-  $.each(modes, function(i, mode) {
+  var selModes = $.grep(modes, function(mode) {
+    return mode.sel;
+  });
+  $.each(selModes, function(i, mode) {
     var item = $('<li>').text(mode.name).attr('title', mode.desc);
     item.click(function() {
       m.trigger('select', mode.id);
@@ -449,8 +476,20 @@ function modeMenu() {
   return m;
 }
 
+function makeQueryButton(elem, modeId) {
+  var mode = $.grep(modes, function(m) {
+    return m.id == modeId;
+  })[0];
+  elem.text(mode.name).attr('title', mode.desc)
+    .addClass('button')
+    .click(function() {
+      queryAction(mode.id, 0, 0);
+    });
+}
+
 return {
-  init: init
+  init: init,
+  makeQueryButton: makeQueryButton
 };
 
 })();
