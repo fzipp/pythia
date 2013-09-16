@@ -72,9 +72,12 @@ a:hover {
   white-space: pre;
 }
 
+#out a {
+  cursor: pointer;
+}
+
 #out a:hover {
   background: #e0ebf5;
-  cursor: pointer;
   text-decoration: none;
 }
 

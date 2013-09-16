@@ -42,7 +42,7 @@ var Files = map[string]string{
     <link rel="stylesheet" href="static/style.css">
   </head>
   <body style="padding: 0;">
-    <div class="ui-layout-center">
+    <div class="ui-layout-center" id="content">
       <h1>Source file {{.FileName}}</h1>
       <p>Select or click within the source code to consult the oracle.</p>
       {{template "home-link"}}
@@ -162,9 +162,12 @@ a:hover {
   white-space: pre;
 }
 
+#out a {
+  cursor: pointer;
+}
+
 #out a:hover {
   background: #e0ebf5;
-  cursor: pointer;
   text-decoration: none;
 }
 
@@ -268,6 +271,7 @@ function init(source, output, file) {
     menu.show();
   });
 
+  history('replaceState', file);
   window.onpopstate = function(e) {
     var s = e.state;
     if (s) {
@@ -366,8 +370,8 @@ function appendLinkified(element, text) {
 function sourceLink(file, line, text, tooltip) {
   var link = $('<a>').attr('title', tooltip).text(text);
   link.click(function() {
-    pushHistoryState(file, line);
     loadAndShowSource(file, line);
+    history('pushState', file, line);
   });
   return link;
 }
@@ -384,9 +388,12 @@ function loadAndShowSource(file, line) {
     });
 }
 
-function pushHistoryState(file, line) {
-  window.history.pushState({'file': file, 'line': line}, '',
-    'source?' + $.param({'file': file}) + '#L' + line);
+function history(method, file, line) {
+  var url = 'source?' + $.param({'file': file});
+  if (line) {
+    url += '#L'+line;
+  }
+  window.history[method]({'file': file, 'line': line}, '', url);
 }
 
 function loadRawSource(file) {
@@ -420,6 +427,9 @@ function setCurrentFile(path) {
 }
 
 function jumpTo(line) {
+  if (!line) {
+    $('#content').scrollTop(0);
+  }
   $('#L'+line)[0].scrollIntoView(true);
 }
 
