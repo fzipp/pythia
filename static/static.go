@@ -46,14 +46,14 @@ var Files = map[string]string{
       <h1>Source file {{.FileName}}</h1>
       <p>Select or click within the source code to consult the oracle.</p>
       {{template "home-link"}}
-      <table class="code">
+      <table class="code" id="source">
         <tr>
           <td class="nums">
             {{range seq 1 .NLines}}
             <span id="L{{.}}">{{.}}</span><br>
             {{end}}
           </td>
-          <td class="lines" id="code">{{printf "%s" .Code}}</td>
+          <td class="lines">{{printf "%s" .Code}}</td>
         </tr>
       </table>
       {{template "home-link"}}
@@ -82,7 +82,7 @@ var Files = map[string]string{
         out.on('esc', function() {
           layout.close('south');
         });
-        oracle.oraclify($('#code'), out, '{{.FileName}}');
+        oracle.init($('#source'), out, '{{.FileName}}');
       });
     </script>
   </body>
@@ -231,11 +231,21 @@ var message = {
   error: 'An error occurred.'
 };
 
-function oraclify(code, out, file) {
+var title = 'Go source code oracle';
+
+var currentFile;
+var out, nums, code;
+
+function init(source, output, file) {
+  out = output;
+  nums = source.find('.nums');
+  code = source.find('.lines');
+  currentFile = file;
+
   var menu = modeMenu();
   $('body').append(menu);
   hideOnEscape(menu, out);
-  hideOnClickOff(menu, code);
+  hideOnClickOff(menu);
   code.mouseup(function(e) {
     var sel = selectedRange();
     if (!isRangeWithinElement(sel, code)) {
@@ -243,14 +253,14 @@ function oraclify(code, out, file) {
     }
     menu.unbind('select').on('select', function(e, mode) {
       menu.hide();
-      changeContent(out, message.wait);
+      writeOutput(message.wait);
       // FIXME: these are character offsets, the oracle wants byte offsets
-      query(mode, pos(file, sel.startOffset, sel.endOffset), 'plain')
+      query(mode, pos(currentFile, sel.startOffset, sel.endOffset), 'plain')
         .done(function(data) {
-          onResult(out, data);
+          writeOutput(data);
         })
         .fail(function(e) {
-          changeContent(out, message.error);
+          writeOutput(message.error);
         });
     });
     menu.css({top: e.pageY, left: e.pageX});
@@ -272,20 +282,16 @@ function hideOnEscape(menu, out) {
   });
 }
 
-function hideOnClickOff(menu, code) {
+function hideOnClickOff(menu) {
   $('body').click(function(e) {
-      if (!$(e.target).closest(code).length) {
+    if (!$(e.target).closest(code).length) {
       menu.hide();
     }
   });
 }
 
-function onResult(out, data) {
-  changeContent(out, data);
-}
-
-function changeContent(element, text) {
-  appendLinkified(element.empty(), text).trigger('change');
+function writeOutput(text) {
+  appendLinkified(out.empty(), text).trigger('change');
 }
 
 // file:line.col-line.col:
@@ -308,16 +314,16 @@ function appendLinkified(element, text) {
       var toLine = match[4];
       var toCol = match[5];
       var rest = match[6];
-      var link = sourceLink(file, fromLine, arrow + rest);
+      var link = sourceLink(file, fromLine, arrow + rest, line);
       element.append(link).append('\n');
       continue;
     }
     if (match = singleAddress.exec(line)) {
       var file = match[1];
-      var line = match[2];
+      var lineNo = match[2];
       var col = match[3];
       var rest = match[4];
-      var link = sourceLink(file, line, arrow + rest);
+      var link = sourceLink(file, lineNo, arrow + rest, line);
       element.append(link).append('\n');
       continue;
     }
@@ -331,12 +337,20 @@ function appendLinkified(element, text) {
   return element;
 }
 
-function sourceLink(file, line, text) {
-  return $('<a>').attr('href', sourceURL(file, line)).text(text);
-}
-
-function sourceURL(file, line) {
-  return 'source?' + $.param({'file': file}) + '#L' + line;
+function sourceLink(file, line, text, tooltip) {
+  var link = $('<a>').attr('href', '#').attr('title', tooltip).text(text);
+  link.click(function() {
+    loadRawSource(file)
+      .done(function(src) {
+        replaceSource(src);
+        setCurrentFile(file);
+        jumpTo(line);
+      })
+      .fail(function() {
+        writeOutput(message.error);
+      });
+  });
+  return link;
 }
 
 function selectedRange() {
@@ -355,6 +369,10 @@ function query(mode, pos, format) {
   };
   var get = (format == 'json') ? $.getJSON : $.get;
   return get('query', data);
+}
+
+function loadRawSource(file) {
+  return $.get('source?' + $.param({'file': file, 'format': 'raw'}));
 }
 
 function pos(file, start, end) {
@@ -377,8 +395,34 @@ function modeMenu() {
   return m;
 }
 
+function replaceSource(src) {
+  code.text(src);
+  showNumbers(countLines(src));
+}
+
+function showNumbers(n) {
+  nums.empty();
+  for (var i = 1; i <= n; i++) {
+    nums.append($('<span>').attr('id', 'L'+i).text(i)).append('<br>');
+  }
+}
+
+function setCurrentFile(path) {
+  currentFile = path;
+  $('h1').text('Source file ' + path);
+  document.title = path + ' - ' + title;
+}
+
+function jumpTo(line) {
+  $('#L'+line)[0].scrollIntoView(true);
+}
+
+function countLines(s) {
+  return (s.match(/\n/g)||[]).length;
+}
+
 return {
-  oraclify: oraclify
+  init: init
 };
 
 })();

@@ -37,6 +37,7 @@ type source struct {
 
 func serveSource(w http.ResponseWriter, req *http.Request) {
 	fileName := req.FormValue("file")
+	format := req.FormValue("format")
 	i := sort.SearchStrings(files, fileName)
 	if i >= len(files) || files[i] != fileName {
 		http.Error(w, "Forbidden", 403)
@@ -46,6 +47,10 @@ func serveSource(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		log.Println(req.RemoteAddr, err)
 		http.NotFound(w, req)
+		return
+	}
+	if format == "raw" {
+		w.Write(code)
 		return
 	}
 	src := source{

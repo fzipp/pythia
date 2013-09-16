@@ -18,14 +18,14 @@
       <h1>Source file {{.FileName}}</h1>
       <p>Select or click within the source code to consult the oracle.</p>
       {{template "home-link"}}
-      <table class="code">
+      <table class="code" id="source">
         <tr>
           <td class="nums">
             {{range seq 1 .NLines}}
             <span id="L{{.}}">{{.}}</span><br>
             {{end}}
           </td>
-          <td class="lines" id="code">{{printf "%s" .Code}}</td>
+          <td class="lines">{{printf "%s" .Code}}</td>
         </tr>
       </table>
       {{template "home-link"}}
@@ -54,7 +54,7 @@
         out.on('esc', function() {
           layout.close('south');
         });
-        oracle.oraclify($('#code'), out, '{{.FileName}}');
+        oracle.init($('#source'), out, '{{.FileName}}');
       });
     </script>
   </body>
