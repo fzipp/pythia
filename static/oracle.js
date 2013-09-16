@@ -58,6 +58,13 @@ function init(source, output, file) {
     menu.css({top: e.pageY, left: e.pageX});
     menu.show();
   });
+
+  window.onpopstate = function(e) {
+    var s = e.state;
+    if (s) {
+      loadAndShowSource(s.file, s.line);
+    }
+  }
 }
 
 var ESC = 27;
@@ -80,6 +87,24 @@ function hideOnClickOff(menu) {
       menu.hide();
     }
   });
+}
+
+function selectedRange() {
+  return window.getSelection().getRangeAt(0);
+}
+
+function isRangeWithinElement(range, elem) {
+  return range.commonAncestorContainer.parentElement == elem[0];
+}
+
+function query(mode, pos, format) {
+  var data = {
+    mode: mode,
+    pos: pos,
+    format: format
+  };
+  var get = (format == 'json') ? $.getJSON : $.get;
+  return get('query', data);
 }
 
 function writeOutput(text) {
@@ -130,37 +155,29 @@ function appendLinkified(element, text) {
 }
 
 function sourceLink(file, line, text, tooltip) {
-  var link = $('<a>').attr('href', '#').attr('title', tooltip).text(text);
+  var link = $('<a>').attr('title', tooltip).text(text);
   link.click(function() {
-    loadRawSource(file)
-      .done(function(src) {
-        replaceSource(src);
-        setCurrentFile(file);
-        jumpTo(line);
-      })
-      .fail(function() {
-        writeOutput(message.error);
-      });
+    pushHistoryState(file, line);
+    loadAndShowSource(file, line);
   });
   return link;
 }
 
-function selectedRange() {
-  return window.getSelection().getRangeAt(0);
+function loadAndShowSource(file, line) {
+  return loadRawSource(file)
+    .done(function(src) {
+      replaceSource(src);
+      setCurrentFile(file);
+      jumpTo(line);
+    })
+    .fail(function() {
+      writeOutput(message.error);
+    });
 }
 
-function isRangeWithinElement(range, elem) {
-  return range.commonAncestorContainer.parentElement == elem[0];
-}
-
-function query(mode, pos, format) {
-  var data = {
-    mode: mode,
-    pos: pos,
-    format: format
-  };
-  var get = (format == 'json') ? $.getJSON : $.get;
-  return get('query', data);
+function pushHistoryState(file, line) {
+  window.history.pushState({'file': file, 'line': line}, '',
+    'source?' + $.param({'file': file}) + '#L' + line);
 }
 
 function loadRawSource(file) {
@@ -173,18 +190,6 @@ function pos(file, start, end) {
     p += ',#' + end;
   }
   return p;
-}
-
-function modeMenu() {
-  var m = $('<ul class="menu">').hide();
-  $.each(modes, function(i, mode) {
-    var item = $('<li>').text(mode.name).attr('title', mode.desc);
-    item.click(function() {
-      m.trigger('select', mode.id);
-    });
-    m.append(item);
-  });
-  return m;
 }
 
 function replaceSource(src) {
@@ -211,6 +216,18 @@ function jumpTo(line) {
 
 function countLines(s) {
   return (s.match(/\n/g)||[]).length;
+}
+
+function modeMenu() {
+  var m = $('<ul class="menu">').hide();
+  $.each(modes, function(i, mode) {
+    var item = $('<li>').text(mode.name).attr('title', mode.desc);
+    item.click(function() {
+      m.trigger('select', mode.id);
+    });
+    m.append(item);
+  });
+  return m;
 }
 
 return {
