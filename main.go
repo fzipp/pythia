@@ -25,8 +25,8 @@ var (
 	verbose    = flag.Bool("v", false, "Verbose mode: print incoming queries")
 	args       []string
 	files      []string
-	listView   *template.Template
-	sourceView *template.Template
+	listView   = template.Must(template.New("").Parse(static.Files["list.html"]))
+	sourceView = template.Must(template.New("").Parse(static.Files["source.html"]))
 )
 
 func init() {
@@ -37,15 +37,6 @@ func init() {
 		}
 		runtime.GOMAXPROCS(n)
 	}
-	initTemplates()
-}
-
-func initTemplates() {
-	listView = template.Must(template.New("").Parse(static.Files["list.html"]))
-	sourceView = template.New("").Funcs(template.FuncMap{
-		"seq": seq,
-	})
-	template.Must(sourceView.Parse(static.Files["source.html"]))
 }
 
 const usage = `Web frontend for Go source code oracle.
@@ -69,23 +60,13 @@ func main() {
 
 	http.HandleFunc("/", serveList)
 	http.HandleFunc("/source", serveSource)
+	http.HandleFunc("/file", serveFile)
 	http.HandleFunc("/query", serveQuery)
 	staticPrefix := "/static/"
 	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.HandlerFunc(serveStatic)))
 
 	fmt.Printf("http://localhost%s/\n", *httpAddr)
 	log.Fatal(http.ListenAndServe(*httpAddr, nil))
-}
-
-func seq(from, to int) <-chan int {
-	ch := make(chan int)
-	go func() {
-		for i := from; i <= to; i++ {
-			ch <- i
-		}
-		close(ch)
-	}()
-	return ch
 }
 
 func scopeFiles(args []string) ([]string, error) {

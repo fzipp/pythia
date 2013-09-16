@@ -38,28 +38,22 @@ var Files = map[string]string{
 <html>
   <head>
     <meta charset="utf-8">
-    <title>{{.FileName}} - Go source code oracle</title>
+    <title>Go source code oracle</title>
     <link rel="stylesheet" href="static/style.css">
   </head>
   <body style="padding: 0;">
     <div class="ui-layout-center" id="content">
-      <h1>Source file {{.FileName}}</h1>
-
+      <h1>Source file {{.}}</h1>
       <p>Select or click within the source code to consult the oracle.</p>
       <div class="buttons">
         <span id="cgraph-button"></span>
         <span id="impl-button"></span>
       </div>
       {{template "home-link"}}
-
       <table class="code" id="source">
         <tr>
-          <td class="nums">
-            {{range seq 1 .NLines}}
-            <span id="L{{.}}">{{.}}</span><br>
-            {{end}}
-          </td>
-          <td class="lines">{{printf "%s" .Code}}</td>
+          <td class="nums"></td>
+          <td class="lines"></td>
         </tr>
       </table>
       {{template "home-link"}}
@@ -88,7 +82,7 @@ var Files = map[string]string{
         out.on('esc', function() {
           layout.close('south');
         });
-        oracle.init($('#source'), out, '{{.FileName}}');
+        oracle.init($('#source'), out, '{{.}}');
         oracle.makeQueryButton($('#cgraph-button'), 'callgraph');
         oracle.makeQueryButton($('#impl-button'), 'implements');
       });
@@ -239,15 +233,24 @@ var oracle = (function() {
 'use strict';
 
 var modes = [
-  {id: 'describe', sel: true, name: 'Describe', desc: 'Describe the expression at the current point.'},
-  {id: 'callees', sel: true, name: 'Call targets', desc: 'Show possible callees of the function call at the current point.'},
-  {id: 'callers', sel: true, name: 'Callers', desc: 'Show the set of callers of the function containing the current point.'},
-  {id: 'callgraph', sel: false, name: 'Call graph', desc: 'Show the callgraph of the current program.'},
-  {id: 'callstack', sel: true, name: 'Call stack', desc: 'Show an arbitrary path from a root of the call graph to the function containing the current point.'},
-  {id: 'freevars', sel: true, name: 'Free variables', desc: 'Enumerate the free variables of the current selection.'},
-  {id: 'implements', sel: false, name: 'Implements', desc: 'Describe the \'implements\' relation for types in the package containing the current point.'},
-  {id: 'peers', sel: true, name: 'Channel peers', desc: 'Enumerate the set of possible corresponding sends/receives for this channel receive/send operation.'},
-  {id: 'referrers', sel: true, name: 'Referrers', desc: 'Enumerate all references to the object denoted by the selected identifier.'}
+  {id: 'describe', sel: true, name: 'Describe',
+   desc: 'Describe the expression at the current point.'},
+  {id: 'callees', sel: true, name: 'Call targets',
+   desc: 'Show possible callees of the function call at the current point.'},
+  {id: 'callers', sel: true, name: 'Callers',
+   desc: 'Show the set of callers of the function containing the current point.'},
+  {id: 'callgraph', sel: false, name: 'Call graph',
+   desc: 'Show the callgraph of the current program.'},
+  {id: 'callstack', sel: true, name: 'Call stack',
+   desc: 'Show an arbitrary path from a root of the call graph to the function containing the current point.'},
+  {id: 'freevars', sel: true, name: 'Free variables',
+   desc: 'Enumerate the free variables of the current selection.'},
+  {id: 'implements', sel: false, name: 'Implements',
+   desc: 'Describe the \'implements\' relation for types in the package containing the current point.'},
+  {id: 'peers', sel: true, name: 'Channel peers',
+   desc: 'Enumerate the set of possible corresponding sends/receives for this channel receive/send operation.'},
+  {id: 'referrers', sel: true, name: 'Referrers',
+   desc: 'Enumerate all references to the object denoted by the selected identifier.'}
 ];
 
 var message = {
@@ -265,6 +268,8 @@ function init(source, output, file) {
   nums = source.find('.nums');
   code = source.find('.lines');
   currentFile = file;
+
+  loadAndShowSource(file);
 
   var menu = modeMenu();
   $('body').append(menu);
@@ -401,7 +406,7 @@ function sourceLink(file, line, text, tooltip) {
 }
 
 function loadAndShowSource(file, line) {
-  return loadRawSource(file)
+  return loadRawFile(file)
     .done(function(src) {
       replaceSource(src);
       setCurrentFile(file);
@@ -420,8 +425,8 @@ function history(method, file, line) {
   window.history[method]({'file': file, 'line': line}, '', url);
 }
 
-function loadRawSource(file) {
-  return $.get('source?' + $.param({'file': file, 'format': 'raw'}));
+function loadRawFile(path) {
+  return $.get('file?' + $.param({'path': path}));
 }
 
 function pos(file, start, end) {

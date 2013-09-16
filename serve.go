@@ -5,7 +5,6 @@
 package main
 
 import (
-	"bytes"
 	"code.google.com/p/go.tools/oracle"
 	"encoding/json"
 	"github.com/fzipp/pythia/static"
@@ -29,36 +28,37 @@ func serveList(w http.ResponseWriter, req *http.Request) {
 	})
 }
 
-type source struct {
-	FileName string
-	Code     []byte
-	NLines   int
-}
-
 func serveSource(w http.ResponseWriter, req *http.Request) {
-	fileName := req.FormValue("file")
-	format := req.FormValue("format")
-	i := sort.SearchStrings(files, fileName)
-	if i >= len(files) || files[i] != fileName {
-		http.Error(w, "Forbidden", 403)
+	file := req.FormValue("file")
+	if isForbidden(file) {
+		errorForbidden(w)
 		return
 	}
-	code, err := ioutil.ReadFile(fileName)
+	sourceView.Execute(w, file)
+}
+
+func serveFile(w http.ResponseWriter, req *http.Request) {
+	path := req.FormValue("path")
+	if isForbidden(path) {
+		errorForbidden(w)
+		return
+	}
+	content, err := ioutil.ReadFile(path)
 	if err != nil {
 		log.Println(req.RemoteAddr, err)
 		http.NotFound(w, req)
 		return
 	}
-	if format == "raw" {
-		w.Write(code)
-		return
-	}
-	src := source{
-		FileName: fileName,
-		Code:     code,
-		NLines:   bytes.Count(code, []byte{'\n'}),
-	}
-	sourceView.Execute(w, src)
+	w.Write(content)
+}
+
+func isForbidden(path string) bool {
+	i := sort.SearchStrings(files, path)
+	return i >= len(files) || files[i] != path
+}
+
+func errorForbidden(w http.ResponseWriter) {
+	http.Error(w, "Forbidden", 403)
 }
 
 func serveQuery(w http.ResponseWriter, req *http.Request) {
