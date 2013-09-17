@@ -54,7 +54,7 @@ var Files = map[string]string{
       {{template "home-link"}}
     </div>
     <div class="ui-layout-south">
-      <pre id="out"></pre>
+      <div id="out"></div>
     </div>
 
     <script src="static/jquery.min.js"></script>
@@ -151,7 +151,7 @@ a:hover {
   color: #060;
 }
 
-#out {
+.out {
   font: 14px Menlo, monospace;
   margin: 0;
   overflow: auto;
@@ -159,11 +159,11 @@ a:hover {
   white-space: pre;
 }
 
-#out a {
+.out a {
   cursor: pointer;
 }
 
-#out a:hover {
+.out a:hover {
   background: #e0ebf5;
   text-decoration: none;
 }
@@ -262,14 +262,14 @@ var message = {
 var title = 'Go source code oracle';
 
 var currentFile;
-var out, nums, code;
+var nums, code, out;
 
 function init(source, output, file) {
   makeSourceView(source);
   nums = source.find('.nums');
   code = source.find('.lines');
+  out = output.addClass('out');
   currentFile = file;
-  out = output;
 
   loadAndShowSource(file);
 

@@ -41,14 +41,14 @@ var message = {
 var title = 'Go source code oracle';
 
 var currentFile;
-var out, nums, code;
+var nums, code, out;
 
 function init(source, output, file) {
   makeSourceView(source);
   nums = source.find('.nums');
   code = source.find('.lines');
+  out = output.addClass('out');
   currentFile = file;
-  out = output;
 
   loadAndShowSource(file);
 
