@@ -44,12 +44,16 @@ var Files = map[string]string{
   <body style="padding: 0;">
     <div class="ui-layout-center" id="content">
       <h1>Source file {{.}}</h1>
-      <p>Select or click within the source code to consult the oracle.</p>
-      <div class="buttons">
-        <span id="cgraph-button"></span>
-        <span id="impl-button"></span>
+      <div style="overflow: hidden">
+        <div style="float: left">
+          Select or click within the source code to consult the oracle.
+          {{template "home-link"}}
+        </div>
+        <div class="buttons" style="float: right">
+          <span id="impl-button"></span>
+          <span id="cgraph-button"></span>
+        </div>
       </div>
-      {{template "home-link"}}
       <div id="source"></div>
       {{template "home-link"}}
     </div>
@@ -216,7 +220,7 @@ a:hover {
 }
 
 .buttons {
-  margin: 20px;
+  margin: 12px;
 }
 `,
 	"oracle.js": `// Copyright 2013 Frederik Zipp.  All rights reserved.
