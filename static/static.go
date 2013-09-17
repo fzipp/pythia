@@ -288,8 +288,8 @@ function init(source, output, file) {
     }
     menu.unbind('select').on('select', function(e, mode) {
       menu.hide();
-      // FIXME: these are character offsets, the oracle wants byte offsets
-      queryAction(mode, sel.startOffset, sel.endOffset);
+      var b = getByteOffsets(code.text(), sel);
+      queryAction(mode, b.startOffset, b.endOffset);
     });
     filterModes(menu, sel);
     menu.css({top: e.pageY, left: e.pageX});
@@ -502,6 +502,35 @@ function makeQueryButton(elem, modeId) {
     .click(function() {
       queryAction(mode.id, 0, 0);
     });
+}
+
+function getByteOffsets(s, range) {
+  var a = getUTF8Length(s, 0, range.startOffset);
+  var b = getUTF8Length(s, range.startOffset, range.endOffset);
+  return {startOffset: a, endOffset: a+b};
+}
+
+// From http://stackoverflow.com/a/12206089
+function getUTF8Length(s, start, end) {
+  var len = 0;
+  for (var i = start; i < end; i++) {
+    var code = s.charCodeAt(i);
+    if (code <= 0x7f) {
+      len += 1;
+    } else if (code <= 0x7ff) {
+      len += 2;
+    } else if (code >= 0xd800 && code <= 0xdfff) {
+      // Surrogate pair: These take 4 bytes in UTF-8 and 2 chars in UCS-2
+      // (Assume next char is the other [valid] half and just skip it)
+      len += 4;
+      i++;
+    } else if (code < 0xffff) {
+      len += 3;
+    } else {
+      len += 4;
+    }
+  }
+  return len;
 }
 
 return {
