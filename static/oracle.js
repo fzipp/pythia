@@ -44,10 +44,11 @@ var currentFile;
 var out, nums, code;
 
 function init(source, output, file) {
-  out = output;
+  makeSourceView(source);
   nums = source.find('.nums');
   code = source.find('.lines');
   currentFile = file;
+  out = output;
 
   loadAndShowSource(file);
 
@@ -265,6 +266,13 @@ function modeMenu() {
     m.append(item);
   });
   return m;
+}
+
+function makeSourceView(elem) {
+  return elem.append($('<table class="code">')
+    .append($('<tr>')
+      .append($('<td class="nums">'))
+      .append($('<td class="lines">'))));
 }
 
 function makeQueryButton(elem, modeId) {
