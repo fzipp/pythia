@@ -24,13 +24,13 @@ var modes = [
   {id: 'callstack', menu: Filter.YES, name: 'Call stack',
    desc: 'Show an arbitrary path from a root of the call graph to the function containing the current point.'},
   {id: 'freevars', menu: Filter.RANGE, name: 'Free variables',
-   desc: 'Enumerate the free variables of the current typeection.'},
+   desc: 'Enumerate the free variables of the current selection.'},
   {id: 'implements', menu: Filter.NO, name: 'Implements',
-   desc: 'Describe the \'implements\' relation for types in the package containing the current point.'},
+   desc: 'Describe the \'implements\' relation for types in the package of the current file.'},
   {id: 'peers', menu: Filter.YES, name: 'Channel peers',
    desc: 'Enumerate the set of possible corresponding sends/receives for this channel receive/send operation.'},
   {id: 'referrers', menu: Filter.YES, name: 'Referrers',
-   desc: 'Enumerate all references to the object denoted by the typeected identifier.'}
+   desc: 'Enumerate all references to the object denoted by the selected identifier.'}
 ];
 
 var message = {
