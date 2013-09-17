@@ -6,25 +6,31 @@ var oracle = (function() {
 
 'use strict';
 
+var Filter = {
+  YES: function(range) { return true; },
+  NO: function(range) { return false; },
+  RANGE: function(range) { return range.startOffset != range.endOffset; }
+};
+
 var modes = [
-  {id: 'describe', sel: true, name: 'Describe',
+  {id: 'describe', menu: Filter.YES, name: 'Describe',
    desc: 'Describe the expression at the current point.'},
-  {id: 'callees', sel: true, name: 'Call targets',
+  {id: 'callees', menu: Filter.YES, name: 'Call targets',
    desc: 'Show possible callees of the function call at the current point.'},
-  {id: 'callers', sel: true, name: 'Callers',
+  {id: 'callers', menu: Filter.YES, name: 'Callers',
    desc: 'Show the set of callers of the function containing the current point.'},
-  {id: 'callgraph', sel: false, name: 'Call graph',
+  {id: 'callgraph', menu: Filter.NO, name: 'Call graph',
    desc: 'Show the callgraph of the current program.'},
-  {id: 'callstack', sel: true, name: 'Call stack',
+  {id: 'callstack', menu: Filter.YES, name: 'Call stack',
    desc: 'Show an arbitrary path from a root of the call graph to the function containing the current point.'},
-  {id: 'freevars', sel: true, name: 'Free variables',
-   desc: 'Enumerate the free variables of the current selection.'},
-  {id: 'implements', sel: false, name: 'Implements',
+  {id: 'freevars', menu: Filter.RANGE, name: 'Free variables',
+   desc: 'Enumerate the free variables of the current typeection.'},
+  {id: 'implements', menu: Filter.NO, name: 'Implements',
    desc: 'Describe the \'implements\' relation for types in the package containing the current point.'},
-  {id: 'peers', sel: true, name: 'Channel peers',
+  {id: 'peers', menu: Filter.YES, name: 'Channel peers',
    desc: 'Enumerate the set of possible corresponding sends/receives for this channel receive/send operation.'},
-  {id: 'referrers', sel: true, name: 'Referrers',
-   desc: 'Enumerate all references to the object denoted by the selected identifier.'}
+  {id: 'referrers', menu: Filter.YES, name: 'Referrers',
+   desc: 'Enumerate all references to the object denoted by the typeected identifier.'}
 ];
 
 var message = {
@@ -59,6 +65,7 @@ function init(source, output, file) {
       // FIXME: these are character offsets, the oracle wants byte offsets
       queryAction(mode, sel.startOffset, sel.endOffset);
     });
+    filterModes(menu, sel);
     menu.css({top: e.pageY, left: e.pageX});
     menu.show();
   });
@@ -100,6 +107,12 @@ function selectedRange() {
 
 function isRangeWithinElement(range, elem) {
   return range.commonAncestorContainer.parentElement == elem[0];
+}
+
+function filterModes(menu, range) {
+  menu.find('li').each(function() {
+    $(this).toggle($(this).data('mode').menu(range));
+  });
 }
 
 function queryAction(mode, start, end) {
@@ -232,6 +245,7 @@ function setCurrentFile(path) {
 function jumpTo(line) {
   if (!line) {
     $('#content').scrollTop(0);
+    return;
   }
   $('#L'+line)[0].scrollIntoView(true);
 }
@@ -242,14 +256,12 @@ function countLines(s) {
 
 function modeMenu() {
   var m = $('<ul class="menu">').hide();
-  var selModes = $.grep(modes, function(mode) {
-    return mode.sel;
-  });
-  $.each(selModes, function(i, mode) {
-    var item = $('<li>').text(mode.name).attr('title', mode.desc);
-    item.click(function() {
-      m.trigger('select', mode.id);
-    });
+  $.each(modes, function(i, mode) {
+    var item = $('<li>').text(mode.name).attr('title', mode.desc)
+      .data('mode', mode)
+      .click(function() {
+        m.trigger('select', mode.id);
+      });
     m.append(item);
   });
   return m;
