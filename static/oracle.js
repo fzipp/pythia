@@ -57,10 +57,15 @@ function init(source, output, file) {
   hideOnEscape(menu, out);
   hideOnClickOff(menu);
   code.mouseup(function(e) {
-    var sel = selectedRange();
-    if (!isRangeWithinElement(sel, code)) {
+    var range = selectedRange();
+    if (!isRangeWithinElement(range, code)) {
       return;
     }
+
+    insertSelectionMarks(range);
+    var sel = selectionMarkOffsets();
+    detachSelectionMarks();
+
     menu.unbind('select').on('select', function(e, mode) {
       menu.hide();
       var b = getByteOffsets(code.text(), sel);
@@ -78,6 +83,35 @@ function init(source, output, file) {
       loadAndShowSource(s.file, s.line);
     }
   }
+}
+
+var marker = '\0';
+var startMark = makeSelectionMark('start');
+var endMark = makeSelectionMark('end');
+
+function makeSelectionMark(type) {
+  return $('<span class="mark">').addClass(type).text(marker)[0];
+}
+
+function insertSelectionMarks(range) {
+  var s = range.cloneRange();
+  var e = range.cloneRange();
+  s.collapse(true);
+  e.collapse(false);
+  s.insertNode(startMark);
+  e.insertNode(endMark);
+}
+
+function detachSelectionMarks() {
+  code.detach('.mark');
+}
+
+function selectionMarkOffsets() {
+  var marked = code.text();
+  return {
+    startOffset: marked.indexOf(marker),
+    endOffset: marked.lastIndexOf(marker)-1
+  };
 }
 
 var ESC = 27;
@@ -107,7 +141,8 @@ function selectedRange() {
 }
 
 function isRangeWithinElement(range, elem) {
-  return range.commonAncestorContainer.parentElement == elem[0];
+  return elem.has(range.startContainer).length &&
+    elem.has(range.endContainer).length;
 }
 
 function filterModes(menu, range) {
@@ -156,21 +191,27 @@ function appendLinkified(element, text) {
     var line = lines[i];
     if (match = rangeAddress.exec(line)) {
       var file = match[1];
-      var fromLine = match[2];
-      var fromCol = match[3];
-      var toLine = match[4];
-      var toCol = match[5];
+      var sel = {
+        fromLine: parseInt(match[2], 10),
+        fromCol: parseInt(match[3], 10)-1,
+        toLine: parseInt(match[4], 10),
+        toCol: parseInt(match[5], 10),
+      };
       var rest = match[6];
-      var link = sourceLink(file, fromLine, arrow + rest, line);
+      var link = sourceLink(file, sel, arrow + rest, line);
       element.append(link).append('\n');
       continue;
     }
     if (match = singleAddress.exec(line)) {
       var file = match[1];
-      var lineNo = match[2];
-      var col = match[3];
+      var sel = {
+        fromLine: parseInt(match[2], 10),
+        fromCol: parseInt(match[3], 10)-1,
+        toLine: parseInt(match[2], 10),
+        toCol: parseInt(match[3], 10),
+      };
       var rest = match[4];
-      var link = sourceLink(file, lineNo, arrow + rest, line);
+      var link = sourceLink(file, sel, arrow + rest, line);
       element.append(link).append('\n');
       continue;
     }
@@ -184,11 +225,16 @@ function appendLinkified(element, text) {
   return element;
 }
 
-function sourceLink(file, line, text, tooltip) {
+function sourceLink(file, sel, text, tooltip) {
   var link = $('<a>').attr('title', tooltip).text(text);
   link.click(function() {
-    loadAndShowSource(file, line);
-    history('pushState', file, line);
+    loadAndShowSource(file, sel.fromLine).done(function() {
+      var src = code.text();
+      highlight(
+        offsetFor(src, sel.fromLine, sel.fromCol),
+        offsetFor(src, sel.toLine, sel.toCol));
+    });
+    history('pushState', file, sel.fromLine);
   });
   return link;
 }
@@ -230,6 +276,16 @@ function replaceSource(src) {
   showNumbers(countLines(src));
 }
 
+function highlight(start, end) {
+  var range = document.createRange();
+  var span = document.createElement('span');
+  $(span).addClass('selection');
+  var src = code[0].firstChild;
+  range.setStart(src, start);
+  range.setEnd(src, end);
+  range.surroundContents(span);
+}
+
 function showNumbers(n) {
   nums.empty();
   for (var i = 1; i <= n; i++) {
@@ -253,6 +309,24 @@ function jumpTo(line) {
 
 function countLines(s) {
   return (s.match(/\n/g)||[]).length;
+}
+
+function offsetFor(text, line, col) {
+  return nthIndexOf(text, '\n', line-1) + col + 1;
+}
+
+function nthIndexOf(s, needle, n) {
+  var count, i = 0;
+  for (count = 0; count < n; count++) {
+    i = s.indexOf(needle, i) + 1;
+    if (i == 0) {
+      break;
+    }
+  }
+  if (count == n) {
+    return i - 1;
+  }
+  return -1;
 }
 
 function modeMenu() {

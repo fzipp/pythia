@@ -64,6 +64,10 @@ a:hover {
   color: #060;
 }
 
+.selection {
+  background: #ff9632;
+}
+
 .out {
   font: 14px Menlo, monospace;
   margin: 0;
