@@ -6,6 +6,7 @@ package main
 
 import (
 	"code.google.com/p/go.tools/importer"
+	"code.google.com/p/go.tools/oracle"
 	"flag"
 	"fmt"
 	"github.com/fzipp/pythia/static"
@@ -25,6 +26,8 @@ var (
 	verbose    = flag.Bool("v", false, "Verbose mode: print incoming queries")
 	args       []string
 	files      []string
+	imp        *importer.Importer
+	ora        *oracle.Oracle
 	listView   = template.Must(template.New("").Parse(static.Files["list.html"]))
 	sourceView = template.Must(template.New("").Parse(static.Files["source.html"]))
 )
@@ -53,10 +56,12 @@ func main() {
 	}
 
 	var err error
-	files, err = scopeFiles(args)
+	imp = importer.New(&importer.Config{Build: &build.Default})
+	ora, err = oracle.New(imp, args, nil, false)
 	if err != nil {
 		log.Fatal(err)
 	}
+	files = scopeFiles(imp, args)
 
 	http.HandleFunc("/", serveList)
 	http.HandleFunc("/source", serveSource)
@@ -69,19 +74,14 @@ func main() {
 	log.Fatal(http.ListenAndServe(*httpAddr, nil))
 }
 
-func scopeFiles(args []string) ([]string, error) {
+func scopeFiles(imp *importer.Importer, args []string) []string {
 	files := make([]string, 0)
-	imp := importer.New(&importer.Config{Build: &build.Default})
-	_, _, err := imp.LoadInitialPackages(args)
-	if err != nil {
-		return files, err
-	}
 	imp.Fset.Iterate(func(f *token.File) bool {
 		files = append(files, f.Name())
 		return true
 	})
 	sort.Strings(files)
-	return files, nil
+	return files
 }
 
 func cmdLine(mode, pos, format string) string {

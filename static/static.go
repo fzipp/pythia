@@ -294,7 +294,6 @@ function init(source, output, file) {
     insertSelectionMarks(range);
     var sel = selectionMarkOffsets();
     detachSelectionMarks();
-    console.log('start: ' + sel.startOffset + ', end: ' + sel.endOffset);
 
     menu.unbind('select').on('select', function(e, mode) {
       menu.hide();

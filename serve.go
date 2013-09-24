@@ -8,7 +8,6 @@ import (
 	"code.google.com/p/go.tools/oracle"
 	"encoding/json"
 	"github.com/fzipp/pythia/static"
-	"go/build"
 	"io"
 	"io/ioutil"
 	"log"
@@ -68,7 +67,12 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	if *verbose {
 		log.Println(req.RemoteAddr, cmdLine(mode, pos, format))
 	}
-	res, err := oracle.Query(args, mode, pos, nil, &build.Default)
+	qpos, err := oracle.ParseQueryPos(imp, pos, false)
+	if err != nil {
+		io.WriteString(w, err.Error())
+		return
+	}
+	res, err := ora.Query(mode, qpos)
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
