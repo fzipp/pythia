@@ -85,6 +85,6 @@ func scopeFiles(imp *importer.Importer, args []string) []string {
 }
 
 func cmdLine(mode, pos, format string) string {
-	return fmt.Sprintf("oracle -mode=%s -pos=%s -format=%s %s",
+	return fmt.Sprintf("oracle %s -pos=%s -format=%s %s",
 		mode, pos, format, strings.Join(args, " "))
 }
