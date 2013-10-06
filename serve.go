@@ -8,7 +8,6 @@ import (
 	"code.google.com/p/go.tools/importer"
 	"code.google.com/p/go.tools/oracle"
 	"encoding/json"
-	"fmt"
 	"github.com/fzipp/pythia/static"
 	"io"
 	"io/ioutil"
@@ -28,7 +27,7 @@ func serveList(w http.ResponseWriter, req *http.Request) {
 		Packages: packages,
 	})
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 	}
 }
 
@@ -74,12 +73,12 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	}
 	mutex.Lock()
 	qpos, err := oracle.ParseQueryPos(imp, pos, false)
-	mutex.Unlock()
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
 	}
 	res, err := ora.Query(mode, qpos)
+	mutex.Unlock()
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
