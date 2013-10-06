@@ -124,6 +124,10 @@ a:hover {
   background: #e0ebf5;
 }
 
+.menu li.disabled {
+  color: #999;
+}
+
 .button {
   background: #e0ebf5;
   border: 1px solid #375eab;

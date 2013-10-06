@@ -67,9 +67,12 @@ function init(source, output, file) {
     detachSelectionMarks();
 
     menu.unbind('select').on('select', function(e, mode) {
+      if (!mode.menu(sel)) {
+        return;
+      }
       menu.hide();
       var b = getByteOffsets(code.text(), sel);
-      queryAction(mode, b.startOffset, b.endOffset);
+      queryAction(mode.id, b.startOffset, b.endOffset);
     });
     filterModes(menu, sel);
     menu.css({top: e.pageY, left: e.pageX});
@@ -147,7 +150,7 @@ function isRangeWithinElement(range, elem) {
 
 function filterModes(menu, range) {
   menu.find('li').each(function() {
-    $(this).toggle($(this).data('mode').menu(range));
+    $(this).toggleClass('disabled', !$(this).data('mode').menu(range));
   });
 }
 
@@ -332,10 +335,13 @@ function nthIndexOf(s, needle, n) {
 function modeMenu() {
   var m = $('<ul class="menu">').hide();
   $.each(modes, function(i, mode) {
+    if (mode.menu == Filter.NO) {
+      return;
+    }
     var item = $('<li>').text(mode.name).attr('title', mode.desc)
       .data('mode', mode)
       .click(function() {
-        m.trigger('select', mode.id);
+        m.trigger('select', mode);
       });
     m.append(item);
   });
