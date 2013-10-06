@@ -67,9 +67,6 @@ function init(source, output, file) {
     detachSelectionMarks();
 
     menu.unbind('select').on('select', function(e, mode) {
-      if (!mode.menu(sel)) {
-        return;
-      }
       menu.hide();
       var b = getByteOffsets(code.text(), sel);
       queryAction(mode.id, b.startOffset, b.endOffset);
@@ -341,7 +338,9 @@ function modeMenu() {
     var item = $('<li>').text(mode.name).attr('title', mode.desc)
       .data('mode', mode)
       .click(function() {
-        m.trigger('select', mode);
+        if (!$(this).hasClass('disabled')) {
+          m.trigger('select', mode);
+        }
       });
     m.append(item);
   });
