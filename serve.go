@@ -5,8 +5,10 @@
 package main
 
 import (
+	"code.google.com/p/go.tools/importer"
 	"code.google.com/p/go.tools/oracle"
 	"encoding/json"
+	"fmt"
 	"github.com/fzipp/pythia/static"
 	"io"
 	"io/ioutil"
@@ -18,13 +20,16 @@ import (
 )
 
 func serveList(w http.ResponseWriter, req *http.Request) {
-	listView.Execute(w, struct {
-		Scope string
-		Files []string
+	err := listView.Execute(w, struct {
+		Scope    string
+		Packages []*importer.PackageInfo
 	}{
-		Scope: strings.Join(args, " "),
-		Files: files,
+		Scope:    strings.Join(args, " "),
+		Packages: packages,
 	})
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func serveSource(w http.ResponseWriter, req *http.Request) {

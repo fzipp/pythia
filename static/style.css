@@ -12,6 +12,10 @@ h1 {
   padding: 0;
 }
 
+h2 {
+  font-size: 16px;
+}
+
 a {
   color: #375eab;
   text-decoration: none;
@@ -25,6 +29,17 @@ a:hover {
   list-style: none;
   margin: 20px;
   padding: 0;
+  column-count: auto;
+  -moz-column-count: auto;
+  -webkit-column-count: auto;
+  column-width: 140px;
+  -moz-column-width: 140px;
+  -webkit-column-width: 140px;
+}
+
+.files li {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .home-link {

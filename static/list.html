@@ -13,10 +13,13 @@
   </head>
   <body>
     <h1>Scope {{.Scope}}</h1>
-    <ul class="files">
+    {{range .Packages}}
+      <h2>{{.Pkg.Path}}</h2>
+      <ul class="files">
       {{range .Files}}
-      <li><a href="source?file={{.}}">{{.}}</a></li>
+        <li><a href="source?file={{filename .}}" title="{{filename .}}">{{filename . | base}}</a></li>
       {{end}}
-    </ul>
+      </ul>
+    {{end}}
   </body>
 </html>

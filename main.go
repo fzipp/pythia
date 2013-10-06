@@ -10,12 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"github.com/fzipp/pythia/static"
+	"go/ast"
 	"go/build"
 	"go/token"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -27,11 +29,17 @@ var (
 	verbose    = flag.Bool("v", false, "Verbose mode: print incoming queries")
 	args       []string
 	files      []string
+	packages   []*importer.PackageInfo
 	imp        *importer.Importer
 	ora        *oracle.Oracle
 	mutex      sync.Mutex
-	listView   = template.Must(template.New("").Parse(static.Files["list.html"]))
-	sourceView = template.Must(template.New("").Parse(static.Files["source.html"]))
+	listView   *template.Template
+	sourceView *template.Template
+
+	funcMap = template.FuncMap{
+		"filename": func(f *ast.File) string { return imp.Fset.File(f.Pos()).Name() },
+		"base":     func(path string) string { return filepath.Base(path) },
+	}
 )
 
 func init() {
@@ -42,6 +50,9 @@ func init() {
 		}
 		runtime.GOMAXPROCS(n)
 	}
+	listView = template.New("").Funcs(funcMap)
+	template.Must(listView.Parse(static.Files["list.html"]))
+	sourceView = template.Must(template.New("").Parse(static.Files["source.html"]))
 }
 
 const usage = `Web frontend for Go source code oracle.
@@ -63,7 +74,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	files = scopeFiles(imp, args)
+	files = scopeFiles(imp)
+	packages = imp.AllPackages()
+	sort.Sort(PackageInfos(packages))
 
 	http.HandleFunc("/", serveList)
 	http.HandleFunc("/source", serveSource)
@@ -76,7 +89,13 @@ func main() {
 	log.Fatal(http.ListenAndServe(*httpAddr, nil))
 }
 
-func scopeFiles(imp *importer.Importer, args []string) []string {
+type PackageInfos []*importer.PackageInfo
+
+func (p PackageInfos) Len() int           { return len(p) }
+func (p PackageInfos) Less(i, j int) bool { return p[i].Pkg.Path() < p[j].Pkg.Path() }
+func (p PackageInfos) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+func scopeFiles(imp *importer.Importer) []string {
 	files := make([]string, 0)
 	imp.Fset.Iterate(func(f *token.File) bool {
 		files = append(files, f.Name())

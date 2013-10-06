@@ -18,11 +18,14 @@ var Files = map[string]string{
   </head>
   <body>
     <h1>Scope {{.Scope}}</h1>
-    <ul class="files">
+    {{range .Packages}}
+      <h2>{{.Pkg.Path}}</h2>
+      <ul class="files">
       {{range .Files}}
-      <li><a href="source?file={{.}}">{{.}}</a></li>
+        <li><a href="source?file={{filename .}}" title="{{filename .}}">{{filename . | base}}</a></li>
       {{end}}
-    </ul>
+      </ul>
+    {{end}}
   </body>
 </html>
 `,
@@ -103,6 +106,10 @@ h1 {
   padding: 0;
 }
 
+h2 {
+  font-size: 16px;
+}
+
 a {
   color: #375eab;
   text-decoration: none;
@@ -116,6 +123,17 @@ a:hover {
   list-style: none;
   margin: 20px;
   padding: 0;
+  column-count: auto;
+  -moz-column-count: auto;
+  -webkit-column-count: auto;
+  column-width: 140px;
+  -moz-column-width: 140px;
+  -webkit-column-width: 140px;
+}
+
+.files li {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .home-link {
