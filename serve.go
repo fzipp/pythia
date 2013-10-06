@@ -67,7 +67,9 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	if *verbose {
 		log.Println(req.RemoteAddr, cmdLine(mode, pos, format))
 	}
+	mutex.Lock()
 	qpos, err := oracle.ParseQueryPos(imp, pos, false)
+	mutex.Unlock()
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return

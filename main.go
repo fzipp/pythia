@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 var (
@@ -28,6 +29,7 @@ var (
 	files      []string
 	imp        *importer.Importer
 	ora        *oracle.Oracle
+	mutex      sync.Mutex
 	listView   = template.Must(template.New("").Parse(static.Files["list.html"]))
 	sourceView = template.Must(template.New("").Parse(static.Files["source.html"]))
 )
