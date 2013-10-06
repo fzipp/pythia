@@ -17,6 +17,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -27,6 +28,7 @@ import (
 var (
 	httpAddr   = flag.String("http", ":8080", "HTTP listen address")
 	verbose    = flag.Bool("v", false, "Verbose mode: print incoming queries")
+	open       = flag.Bool("open", true, "Try to open browser")
 	args       []string
 	files      []string
 	packages   []*importer.PackageInfo
@@ -85,7 +87,12 @@ func main() {
 	staticPrefix := "/static/"
 	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.HandlerFunc(serveStatic)))
 
-	fmt.Printf("http://localhost%s/\n", *httpAddr)
+	if *open {
+		url := fmt.Sprintf("http://localhost%s/", *httpAddr)
+		if !startBrowser(url) {
+			fmt.Println(url)
+		}
+	}
 	log.Fatal(http.ListenAndServe(*httpAddr, nil))
 }
 
@@ -103,6 +110,23 @@ func scopeFiles(imp *importer.Importer) []string {
 	})
 	sort.Strings(files)
 	return files
+}
+
+// startBrowser tries to open the URL in a browser
+// and reports whether it succeeds.
+func startBrowser(url string) bool {
+	// try to start the browser
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		args = []string{"open"}
+	case "windows":
+		args = []string{"cmd", "/c", "start"}
+	default:
+		args = []string{"xdg-open"}
+	}
+	cmd := exec.Command(args[0], append(args[1:], url)...)
+	return cmd.Start() == nil
 }
 
 func cmdLine(mode, pos, format string) string {
