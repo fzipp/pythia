@@ -308,6 +308,11 @@ function init(source, output, file) {
   hideOnEscape(menu, out);
   hideOnClickOff(menu);
   code.mouseup(function(e) {
+    if (menu.is(':visible')) {
+      menu.hide();
+      return;
+    }
+
     var range = selectedRange();
     if (!isRangeWithinElement(range, code)) {
       return;
