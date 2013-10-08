@@ -71,12 +71,12 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	if *verbose {
 		log.Println(req.RemoteAddr, cmdLine(mode, pos, format))
 	}
-	mutex.Lock()
 	qpos, err := oracle.ParseQueryPos(imp, pos, false)
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
 	}
+	mutex.Lock()
 	res, err := ora.Query(mode, qpos)
 	mutex.Unlock()
 	if err != nil {
