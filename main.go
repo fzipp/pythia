@@ -15,6 +15,7 @@ import (
 	"go/token"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -87,13 +88,18 @@ func main() {
 	staticPrefix := "/static/"
 	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.HandlerFunc(serveStatic)))
 
+	srv := &http.Server{Addr: *httpAddr}
+	l, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if *open {
 		url := fmt.Sprintf("http://localhost%s/", *httpAddr)
 		if !startBrowser(url) {
 			fmt.Println(url)
 		}
 	}
-	log.Fatal(http.ListenAndServe(*httpAddr, nil))
+	log.Fatal(srv.Serve(l))
 }
 
 type PackageInfos []*importer.PackageInfo
