@@ -37,7 +37,10 @@ func serveSource(w http.ResponseWriter, req *http.Request) {
 		errorForbidden(w)
 		return
 	}
-	sourceView.Execute(w, file)
+	err := sourceView.Execute(w, file)
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func serveFile(w http.ResponseWriter, req *http.Request) {
