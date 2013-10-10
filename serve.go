@@ -9,14 +9,31 @@ import (
 	"code.google.com/p/go.tools/oracle"
 	"encoding/json"
 	"github.com/fzipp/pythia/static"
+	"go/ast"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
+
+var (
+	listView   = template.New("list")
+	sourceView = template.New("source")
+)
+
+func init() {
+	funcs := template.FuncMap{
+		"filename": func(f *ast.File) string { return imp.Fset.File(f.Pos()).Name() },
+		"base":     func(path string) string { return filepath.Base(path) },
+	}
+	template.Must(listView.Funcs(funcs).Parse(static.Files["list.html"]))
+	template.Must(sourceView.Parse(static.Files["source.html"]))
+}
 
 func serveList(w http.ResponseWriter, req *http.Request) {
 	err := listView.Execute(w, struct {
@@ -72,7 +89,7 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	pos := req.FormValue("pos")
 	format := req.FormValue("format")
 	if *verbose {
-		log.Println(req.RemoteAddr, cmdLine(mode, pos, format))
+		log.Println(req.RemoteAddr, cmdLine(mode, pos, format, args))
 	}
 	qpos, err := oracle.ParseQueryPos(imp, pos, false)
 	if err != nil {

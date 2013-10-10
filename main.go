@@ -9,17 +9,13 @@ import (
 	"code.google.com/p/go.tools/oracle"
 	"flag"
 	"fmt"
-	"github.com/fzipp/pythia/static"
-	"go/ast"
 	"go/build"
 	"go/token"
-	"html/template"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -27,22 +23,15 @@ import (
 )
 
 var (
-	httpAddr   = flag.String("http", ":8080", "HTTP listen address")
-	verbose    = flag.Bool("v", false, "Verbose mode: print incoming queries")
-	open       = flag.Bool("open", true, "Try to open browser")
-	args       []string
-	files      []string
-	packages   []*importer.PackageInfo
-	imp        *importer.Importer
-	ora        *oracle.Oracle
-	mutex      sync.Mutex
-	listView   *template.Template
-	sourceView *template.Template
-
-	funcMap = template.FuncMap{
-		"filename": func(f *ast.File) string { return imp.Fset.File(f.Pos()).Name() },
-		"base":     func(path string) string { return filepath.Base(path) },
-	}
+	httpAddr = flag.String("http", ":8080", "HTTP listen address")
+	verbose  = flag.Bool("v", false, "Verbose mode: print incoming queries")
+	open     = flag.Bool("open", true, "Try to open browser")
+	args     []string
+	files    []string
+	packages []*importer.PackageInfo
+	imp      *importer.Importer
+	ora      *oracle.Oracle
+	mutex    sync.Mutex
 )
 
 func init() {
@@ -53,9 +42,6 @@ func init() {
 		}
 		runtime.GOMAXPROCS(n)
 	}
-	listView = template.New("").Funcs(funcMap)
-	template.Must(listView.Parse(static.Files["list.html"]))
-	sourceView = template.Must(template.New("").Parse(static.Files["source.html"]))
 }
 
 const usage = `Web frontend for Go source code oracle.
@@ -79,14 +65,9 @@ func main() {
 	}
 	files = scopeFiles(imp)
 	packages = imp.AllPackages()
-	sort.Sort(PackageInfos(packages))
+	sort.Sort(byPath(packages))
 
-	http.HandleFunc("/", serveList)
-	http.HandleFunc("/source", serveSource)
-	http.HandleFunc("/file", serveFile)
-	http.HandleFunc("/query", serveQuery)
-	staticPrefix := "/static/"
-	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.HandlerFunc(serveStatic)))
+	registerHandlers()
 
 	srv := &http.Server{Addr: *httpAddr}
 	l, err := net.Listen("tcp", srv.Addr)
@@ -102,12 +83,24 @@ func main() {
 	log.Fatal(srv.Serve(l))
 }
 
-type PackageInfos []*importer.PackageInfo
+func registerHandlers() {
+	http.HandleFunc("/", serveList)
+	http.HandleFunc("/source", serveSource)
+	http.HandleFunc("/file", serveFile)
+	http.HandleFunc("/query", serveQuery)
+	staticPrefix := "/static/"
+	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.HandlerFunc(serveStatic)))
+}
 
-func (p PackageInfos) Len() int           { return len(p) }
-func (p PackageInfos) Less(i, j int) bool { return p[i].Pkg.Path() < p[j].Pkg.Path() }
-func (p PackageInfos) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+// byPath makes a slice of package infos sortable by package path.
+type byPath []*importer.PackageInfo
 
+func (p byPath) Len() int           { return len(p) }
+func (p byPath) Less(i, j int) bool { return p[i].Pkg.Path() < p[j].Pkg.Path() }
+func (p byPath) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
+// scopeFiles returns a new slice containing the full paths of all the files
+// imported by an importer, sorted in increasing order.
 func scopeFiles(imp *importer.Importer) []string {
 	files := make([]string, 0)
 	imp.Fset.Iterate(func(f *token.File) bool {
@@ -135,7 +128,9 @@ func startBrowser(url string) bool {
 	return cmd.Start() == nil
 }
 
-func cmdLine(mode, pos, format string) string {
+// cmdLine returns what the command line would look like if the oracle was
+// invoked via command line with the given arguments.
+func cmdLine(mode, pos, format string, scope []string) string {
 	return fmt.Sprintf("oracle %s -pos=%s -format=%s %s",
-		mode, pos, format, strings.Join(args, " "))
+		mode, pos, format, strings.Join(scope, " "))
 }
