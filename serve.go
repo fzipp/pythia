@@ -22,17 +22,16 @@ import (
 )
 
 var (
-	listView   = template.New("list")
-	sourceView = template.New("source")
-)
-
-func init() {
-	funcs := template.FuncMap{
+	funcs = template.FuncMap{
 		"filename": func(f *ast.File) string { return imp.Fset.File(f.Pos()).Name() },
 		"base":     func(path string) string { return filepath.Base(path) },
 	}
-	template.Must(listView.Funcs(funcs).Parse(static.Files["list.html"]))
-	template.Must(sourceView.Parse(static.Files["source.html"]))
+	listView   = parse("list.html")
+	sourceView = parse("source.html")
+)
+
+func parse(file string) *template.Template {
+	return template.Must(template.New(file).Funcs(funcs).Parse(static.Files[file]))
 }
 
 func serveList(w http.ResponseWriter, req *http.Request) {
