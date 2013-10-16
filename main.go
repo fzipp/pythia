@@ -44,17 +44,45 @@ func init() {
 	}
 }
 
-const usage = `Web frontend for Go source code oracle.
+const useHelp = "Run 'pythia -help' for more information.\n"
+
+const helpMessage = `Web frontend for the Go source code oracle.
 Usage: pythia [<flag> ...] <args> ...
-Use -help flag to display options.
+
+The -http flag specifies the HTTP service address (e.g., ':6060').
+
+The -open flag determines, whether the application should try to
+open the browser. It is set to 'true' by default. If set to 'false'
+the browser will not be launched.
+
+The -v flag enables verbose mode, in which every incoming query
+to the oracle is logged to the standard output.
+
+Examples:
+
+Start pythia with the scope of package oracle:
+% pythia code.google.com/p/go.tools/cmd/oracle
+
+Start pythia with the scope of package image/png on port 8081,
+but don't open the browser:
+% pythia -http=:8081 -open=false image/png
 ` + importer.InitialPackagesUsage
 
 func main() {
-	flag.Parse()
+	flag.Usage = func() { fmt.Fprint(os.Stderr, useHelp) }
+	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
+	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			fmt.Println(helpMessage)
+			fmt.Println("Flags:")
+			flag.PrintDefaults()
+		}
+		os.Exit(2)
+	}
 	args = flag.Args()
 	if len(args) == 0 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(1)
+		fmt.Fprint(os.Stderr, "Error: no package arguments.\n"+useHelp)
+		os.Exit(2)
 	}
 
 	var err error
