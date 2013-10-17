@@ -75,8 +75,15 @@ func serveFile(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	var sel godoc.Selection
+	s, err := parseSelection(req.FormValue("s"))
+	if err == nil {
+		offsets := s.byteOffsetsIn(content)
+		sel = godoc.RangeSelection(offsets)
+	}
+
 	var buf bytes.Buffer
-	godoc.FormatText(&buf, content, -1, true, "", nil)
+	godoc.FormatText(&buf, content, -1, true, "", sel)
 
 	buf.WriteTo(w)
 }

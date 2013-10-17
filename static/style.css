@@ -79,7 +79,7 @@ a:hover {
   color: #060;
 }
 
-.selection {
+.selection, .selection-comment {
   background: #ff9632;
 }
 

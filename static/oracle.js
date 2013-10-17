@@ -85,7 +85,7 @@ function init(source, output, file) {
   window.onpopstate = function(e) {
     var s = e.state;
     if (s) {
-      loadAndShowSource(s.file, s.line);
+      loadAndShowSource(s.file, s.line, s.sel);
     }
   }
 }
@@ -198,7 +198,7 @@ function appendLinkified(element, text) {
       var file = match[1];
       var sel = {
         fromLine: parseInt(match[2], 10),
-        fromCol: parseInt(match[3], 10)-1,
+        fromCol: parseInt(match[3], 10),
         toLine: parseInt(match[4], 10),
         toCol: parseInt(match[5], 10),
       };
@@ -211,7 +211,7 @@ function appendLinkified(element, text) {
       var file = match[1];
       var sel = {
         fromLine: parseInt(match[2], 10),
-        fromCol: parseInt(match[3], 10)-1,
+        fromCol: parseInt(match[3], 10),
         toLine: parseInt(match[2], 10),
         toCol: parseInt(match[3], 10),
       };
@@ -233,19 +233,14 @@ function appendLinkified(element, text) {
 function sourceLink(file, sel, text, tooltip) {
   var link = $('<a>').attr('title', tooltip).text(text);
   link.click(function() {
-    loadAndShowSource(file, sel.fromLine).done(function() {
-      var src = code.text();
-      highlight(
-        offsetFor(src, sel.fromLine, sel.fromCol),
-        offsetFor(src, sel.toLine, sel.toCol));
-    });
-    history('pushState', file, sel.fromLine);
+    loadAndShowSource(file, sel.fromLine, sel);
+    history('pushState', file, sel.fromLine, sel);
   });
   return link;
 }
 
-function loadAndShowSource(file, line) {
-  return loadFile(file)
+function loadAndShowSource(file, line, sel) {
+  return loadFile(file, sel)
     .done(function(src) {
       replaceSource(src);
       setCurrentFile(file);
@@ -264,8 +259,17 @@ function history(method, file, line) {
   window.history[method]({'file': file, 'line': line}, '', url);
 }
 
-function loadFile(path) {
-  return $.get('file?' + $.param({'path': path}));
+function loadFile(path, sel) {
+  var params = {'path': path};
+  if (sel) {
+    $.extend(params, {'s': selectionParam(sel)});
+  }
+  return $.get('file?' + $.param(params));
+}
+
+function selectionParam(sel) {
+  // line.col-line.col
+  return sel.fromLine + '.' + sel.fromCol + '-' + sel.toLine + '.' + sel.toCol;
 }
 
 function pos(file, start, end) {
@@ -279,16 +283,6 @@ function pos(file, start, end) {
 function replaceSource(src) {
   code.html(src);
   showNumbers(countLines(src));
-}
-
-function highlight(start, end) {
-  var range = document.createRange();
-  var span = document.createElement('span');
-  $(span).addClass('selection');
-  var src = code[0].firstChild;
-  range.setStart(src, start);
-  range.setEnd(src, end);
-  range.surroundContents(span);
 }
 
 function showNumbers(n) {
@@ -314,24 +308,6 @@ function jumpTo(line) {
 
 function countLines(s) {
   return (s.match(/\n/g)||[]).length;
-}
-
-function offsetFor(text, line, col) {
-  return nthIndexOf(text, '\n', line-1) + col + 1;
-}
-
-function nthIndexOf(s, needle, n) {
-  var count, i = 0;
-  for (count = 0; count < n; count++) {
-    i = s.indexOf(needle, i) + 1;
-    if (i == 0) {
-      break;
-    }
-  }
-  if (count == n) {
-    return i - 1;
-  }
-  return -1;
 }
 
 function modeMenu() {
