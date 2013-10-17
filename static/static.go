@@ -502,12 +502,12 @@ function loadAndShowSource(file, line, sel) {
     });
 }
 
-function history(method, file, line) {
+function history(method, file, line, sel) {
   var url = 'source?' + $.param({'file': file});
   if (line) {
     url += '#L'+line;
   }
-  window.history[method]({'file': file, 'line': line}, '', url);
+  window.history[method]({'file': file, 'line': line, 'sel': sel}, '', url);
 }
 
 function loadFile(path, sel) {
