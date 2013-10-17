@@ -277,7 +277,7 @@ function pos(file, start, end) {
 }
 
 function replaceSource(src) {
-  code.text(src);
+  code.html(src);
   showNumbers(countLines(src));
 }
 

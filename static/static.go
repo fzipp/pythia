@@ -52,7 +52,7 @@ var Files = map[string]string{
           Select or click within the source code to consult the oracle.
           {{template "home-link"}}
         </div>
-        <div class="buttons" style="float: right">
+        <div class="buttons" style="float: right; margin-right: 80px;">
           <span id="impl-button"></span>
           <span id="cgraph-button"></span>
         </div>
@@ -528,7 +528,7 @@ function pos(file, start, end) {
 }
 
 function replaceSource(src) {
-  code.text(src);
+  code.html(src);
   showNumbers(countLines(src));
 }
 
