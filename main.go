@@ -5,8 +5,6 @@
 package main
 
 import (
-	"code.google.com/p/go.tools/importer"
-	"code.google.com/p/go.tools/oracle"
 	"flag"
 	"fmt"
 	"go/build"
@@ -20,6 +18,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"code.google.com/p/go.tools/importer"
+	"code.google.com/p/go.tools/oracle"
 )
 
 var (

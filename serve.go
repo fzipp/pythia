@@ -5,10 +5,8 @@
 package main
 
 import (
-	"code.google.com/p/go.tools/importer"
-	"code.google.com/p/go.tools/oracle"
+	"bytes"
 	"encoding/json"
-	"github.com/fzipp/pythia/static"
 	"go/ast"
 	"html/template"
 	"io"
@@ -19,6 +17,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"code.google.com/p/go.tools/godoc"
+	"code.google.com/p/go.tools/importer"
+	"code.google.com/p/go.tools/oracle"
+	"github.com/fzipp/pythia/static"
 )
 
 var (
@@ -71,7 +74,11 @@ func serveFile(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-	w.Write(content)
+
+	var buf bytes.Buffer
+	godoc.FormatText(&buf, content, -1, true, "", nil)
+
+	buf.WriteTo(w)
 }
 
 func isForbidden(path string) bool {
