@@ -79,7 +79,6 @@ func serveFile(w http.ResponseWriter, req *http.Request) {
 	godoc.FormatText(&buf, content, -1, true, "", nil)
 
 	buf.WriteTo(w)
-	//w.Write(content)
 }
 
 func isForbidden(path string) bool {
