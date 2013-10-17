@@ -113,7 +113,7 @@ func main() {
 }
 
 func registerHandlers() {
-	http.HandleFunc("/", serveList)
+	http.HandleFunc("/", serveIndex)
 	http.HandleFunc("/source", serveSource)
 	http.HandleFunc("/file", serveFile)
 	http.HandleFunc("/query", serveQuery)

@@ -30,7 +30,7 @@
 set -e
 
 STATIC="
-	list.html
+	index.html
 	source.html
 	style.css
 	oracle.js

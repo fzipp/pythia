@@ -3,7 +3,7 @@
 package static
 
 var Files = map[string]string{
-	"list.html": `<!DOCTYPE html>
+	"index.html": `<!DOCTYPE html>
 <!--
   Copyright 2013 Frederik Zipp. All rights reserved.
   Use of this source code is governed by a BSD-style
