@@ -303,7 +303,13 @@ function jumpTo(line) {
     $('#content').scrollTop(0);
     return;
   }
-  $('#L'+line)[0].scrollIntoView(true);
+  var l = $('#L'+line);
+  l.addClass('selection', 100).delay(300).removeClass('selection', 600);
+
+  // scroll into view with 3 lines of padding above
+  $('#content').animate({
+    scrollTop: $('#content').scrollTop() + l.offset().top - l.height()*3
+  });
 }
 
 function countLines(s) {
