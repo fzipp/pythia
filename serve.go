@@ -27,7 +27,7 @@ import (
 var (
 	funcs = template.FuncMap{
 		"filename": func(f *ast.File) string { return imp.Fset.File(f.Pos()).Name() },
-		"base":     func(path string) string { return filepath.Base(path) },
+		"base":     filepath.Base,
 	}
 	listView   = parse("list.html")
 	sourceView = parse("source.html")
