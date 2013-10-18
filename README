@@ -5,7 +5,7 @@ For more information on the Go oracle, see the original announcement:
   https://groups.google.com/d/msg/golang-nuts/CwdIJZs6Tfc/GX7ixTK_Dd4J
 
 
-Pythia requires a recent (=tip) version of the GOROOT libraries.
+Pythia requires a recent (= 1.2RC or tip) version of the GOROOT libraries.
 
 To install, run
   go get github.com/fzipp/pythia
