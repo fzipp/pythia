@@ -61,7 +61,14 @@ var Files = map[string]string{
       {{template "home-link"}}
     </div>
     <div class="ui-layout-south">
-      <div id="out"></div>
+      <div class="out"></div>
+      <div class="orientation-btn vert"
+           title="Switch to vertical output pane">&#x7c;</div>
+    </div>
+    <div class="ui-layout-east">
+      <div class="out"></div>
+      <div class="orientation-btn horiz"
+           title="Switch to horizontal output pane">&mdash;</div>
     </div>
 
     <script src="static/jquery.min.js"></script>
@@ -69,20 +76,47 @@ var Files = map[string]string{
     <script src="static/jquery-layout.min.js"></script>
     <script src="static/oracle.js"></script>
     <script>
-      $(document).ready(function() {
-        var layout = $('body').layout({
+      $(function() {
+        var paneKey = 'pythia.out.pane';
+        var pane = localStorage[paneKey] || 'south';
+
+        var goldenRatio = 0.382;
+        var body = $('body')
+        var layout = body.layout({
           applyDefaultStyles: true,
           south: {
             size: 200,
-            initClosed: true
+            initClosed: true,
+            initHidden: (pane != 'south')
+          },
+          east: {
+            size: Math.floor(body.width() * goldenRatio),
+            initClosed: true,
+            initHidden: (pane != 'east')
           }
         });
-        var out = $('#out');
+
+        function changeOrientation(from, to) {
+          layout.hide(from);
+          layout.show(to);
+          layout.open(to);
+          pane = to;
+          localStorage[paneKey] = pane;
+        }
+
+        $('.orientation-btn.vert').click(function() {
+          changeOrientation('south', 'east');
+        });
+        $('.orientation-btn.horiz').click(function() {
+          changeOrientation('east', 'south');
+        });
+
+        var out = $('.out');
         out.on('change', function() {
-          layout.open('south');
+          layout.open(pane);
         });
         out.on('esc', function() {
-          layout.close('south');
+          layout.close(pane);
         });
         oracle.init($('#source'), out, '{{.}}');
         oracle.makeQueryButton($('#cgraph-button'), 'callgraph');
@@ -180,7 +214,6 @@ a:hover {
 .out {
   font: 14px Menlo, monospace;
   margin: 0;
-  overflow: auto;
   padding: 10px;
   white-space: pre;
 }
@@ -247,6 +280,18 @@ a:hover {
 
 .buttons {
   margin: 12px;
+}
+
+.orientation-btn {
+  background: #e0ebf5;
+  border: 1px solid #375eab;
+  border-radius: 3px;
+  cursor: pointer;
+  position: fixed;
+  right: 5px;
+  text-align: center;
+  top: 5px;
+  width: 20px;
 }
 `,
 	"oracle.js": `// Copyright 2013 Frederik Zipp.  All rights reserved.

@@ -86,7 +86,6 @@ a:hover {
 .out {
   font: 14px Menlo, monospace;
   margin: 0;
-  overflow: auto;
   padding: 10px;
   white-space: pre;
 }
@@ -153,4 +152,16 @@ a:hover {
 
 .buttons {
   margin: 12px;
+}
+
+.orientation-btn {
+  background: #e0ebf5;
+  border: 1px solid #375eab;
+  border-radius: 3px;
+  cursor: pointer;
+  position: fixed;
+  right: 5px;
+  text-align: center;
+  top: 5px;
+  width: 20px;
 }

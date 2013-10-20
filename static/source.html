@@ -30,7 +30,14 @@
       {{template "home-link"}}
     </div>
     <div class="ui-layout-south">
-      <div id="out"></div>
+      <div class="out"></div>
+      <div class="orientation-btn vert"
+           title="Switch to vertical output pane">&#x7c;</div>
+    </div>
+    <div class="ui-layout-east">
+      <div class="out"></div>
+      <div class="orientation-btn horiz"
+           title="Switch to horizontal output pane">&mdash;</div>
     </div>
 
     <script src="static/jquery.min.js"></script>
@@ -38,20 +45,47 @@
     <script src="static/jquery-layout.min.js"></script>
     <script src="static/oracle.js"></script>
     <script>
-      $(document).ready(function() {
-        var layout = $('body').layout({
+      $(function() {
+        var paneKey = 'pythia.out.pane';
+        var pane = localStorage[paneKey] || 'south';
+
+        var goldenRatio = 0.382;
+        var body = $('body')
+        var layout = body.layout({
           applyDefaultStyles: true,
           south: {
             size: 200,
-            initClosed: true
+            initClosed: true,
+            initHidden: (pane != 'south')
+          },
+          east: {
+            size: Math.floor(body.width() * goldenRatio),
+            initClosed: true,
+            initHidden: (pane != 'east')
           }
         });
-        var out = $('#out');
+
+        function changeOrientation(from, to) {
+          layout.hide(from);
+          layout.show(to);
+          layout.open(to);
+          pane = to;
+          localStorage[paneKey] = pane;
+        }
+
+        $('.orientation-btn.vert').click(function() {
+          changeOrientation('south', 'east');
+        });
+        $('.orientation-btn.horiz').click(function() {
+          changeOrientation('east', 'south');
+        });
+
+        var out = $('.out');
         out.on('change', function() {
-          layout.open('south');
+          layout.open(pane);
         });
         out.on('esc', function() {
-          layout.close('south');
+          layout.close(pane);
         });
         oracle.init($('#source'), out, '{{.}}');
         oracle.makeQueryButton($('#cgraph-button'), 'callgraph');
