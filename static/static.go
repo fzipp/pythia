@@ -18,14 +18,29 @@ var Files = map[string]string{
   </head>
   <body>
     <h1>Scope {{.Scope}}</h1>
+    <p>
+      <input type="checkbox" id="show-std">
+      <label for="show-std">Show standard packages</label>
+    </p>
     {{range .Packages}}
+    <div class="pkg {{cond (stdpkg .Pkg.Path) "std" ""}}">
       <h2>{{.Pkg.Path}}</h2>
       <ul class="files">
       {{range .Files}}
         <li><a href="source?file={{filename .}}" title="{{filename .}}">{{filename . | base}}</a></li>
       {{end}}
       </ul>
+    </div>
     {{end}}
+    <script src="static/jquery.min.js"></script>
+    <script>
+      $(function() {
+        var stdPackages = $('.pkg.std').hide();
+        $('#show-std').change(function() {
+          stdPackages.toggle($(this).is(':checked'));
+        });
+      });
+    </script>
   </body>
 </html>
 `,

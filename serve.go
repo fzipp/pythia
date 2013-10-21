@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"go/ast"
+	"go/build"
 	"html/template"
 	"io"
 	"io/ioutil"
@@ -28,6 +29,8 @@ var (
 	funcs = template.FuncMap{
 		"filename": func(f *ast.File) string { return imp.Fset.File(f.Pos()).Name() },
 		"base":     filepath.Base,
+		"cond":     cond,
+		"stdpkg":   isStandardPackage,
 	}
 	indexView  = parse("index.html")
 	sourceView = parse("source.html")
@@ -36,6 +39,21 @@ var (
 // parse reads and parses an HTML template from the static file map.
 func parse(file string) *template.Template {
 	return template.Must(template.New(file).Funcs(funcs).Parse(static.Files[file]))
+}
+
+// cond returns t if c is true, otherwise f.
+func cond(c bool, t, f interface{}) interface{} {
+	if c {
+		return t
+	}
+	return f
+}
+
+// isStandardPackage returns true if the package for the given import
+// path is a package of the standard library.
+func isStandardPackage(path string) bool {
+	p, _ := build.Import(path, "", build.FindOnly)
+	return p.Goroot && p.ImportPath != "" && !strings.Contains(p.ImportPath, ".")
 }
 
 // serveIndex delivers the scope index page, which is the first
