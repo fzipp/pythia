@@ -145,14 +145,18 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 		io.WriteString(w, err.Error())
 		return
 	}
-	mutex.Lock()
-	res, err := ora.Query(mode, qpos)
-	mutex.Unlock()
+	res, err := queryOracle(mode, qpos)
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
 	}
 	writeResult(w, res, format)
+}
+
+func queryOracle(mode string, qpos *oracle.QueryPos) (*oracle.Result, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return ora.Query(mode, qpos)
 }
 
 // writeResult writes the result of an oracle query to w in the specified
