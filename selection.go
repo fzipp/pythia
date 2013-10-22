@@ -36,6 +36,8 @@ func (p position) byteOffsetIn(b []byte) int {
 	return nthIndexByte(b, '\n', p.line-1) + p.col
 }
 
+// nthIndexByte returns the index of the nth instance of c in s,
+// or -1 if no such instance is present in s.
 func nthIndexByte(s []byte, c byte, n int) int {
 	var count, idx int
 	for count = 0; count < n; count++ {
