@@ -308,7 +308,7 @@ function jumpTo(line) {
 
   // scroll into view with 3 lines of padding above
   $('#content').animate({
-    scrollTop: $('#content').scrollTop() + l.offset().top - l.height()*3
+    scrollTop: $('#content').scrollTop() + l.offset().top - l.height()*3 - $('#top').height()
   });
 }
 

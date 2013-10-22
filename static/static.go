@@ -51,8 +51,6 @@ var Files = map[string]string{
   license that can be found in the LICENSE file.
 -->
 
-{{define "home-link"}}<p class="home-link"><a href="/">Back to scope index</a></p>{{end}}
-
 <html>
   <head>
     <meta charset="utf-8">
@@ -60,30 +58,28 @@ var Files = map[string]string{
     <link rel="stylesheet" href="static/style.css">
   </head>
   <body style="padding: 0;">
-    <div class="ui-layout-center" id="content">
-      <h1>Source file {{.}}</h1>
+    <div class="ui-layout-north" id="top">
       <div style="overflow: hidden">
-        <div style="float: left">
-          Select or click within the source code to consult the oracle.
-          {{template "home-link"}}
+        <div class="buttons" style="float: left">
+          <a href="/" class="button" title="Back to scope index">←</a>
         </div>
+        <h1 style="margin: 18px 0; float: left">Source file {{.}}</h1>
         <div class="buttons" style="float: right; margin-right: 80px;">
           <span id="impl-button"></span>
           <span id="cgraph-button"></span>
+          <span id="orientation-button" class="button" style="margin-left: 10px"></span>
         </div>
       </div>
+    </div>
+    <div class="ui-layout-center" id="content">
+      <p>Select or click within the source code to consult the oracle.</p>
       <div id="source"></div>
-      {{template "home-link"}}
     </div>
     <div class="ui-layout-south">
       <div class="out"></div>
-      <div class="orientation-btn vert"
-           title="Switch to vertical output pane">&#x7c;</div>
     </div>
     <div class="ui-layout-east">
       <div class="out"></div>
-      <div class="orientation-btn horiz"
-           title="Switch to horizontal output pane">&mdash;</div>
     </div>
 
     <script src="static/jquery.min.js"></script>
@@ -96,9 +92,14 @@ var Files = map[string]string{
         var pane = localStorage[paneKey] || 'south';
 
         var goldenRatio = 0.382;
-        var body = $('body')
+        var body = $('body');
         var layout = body.layout({
           applyDefaultStyles: true,
+          north: {
+            spacing_open: 1,
+            resizable: false,
+            closable: false
+          },
           south: {
             size: 200,
             initClosed: true,
@@ -111,19 +112,32 @@ var Files = map[string]string{
           }
         });
 
-        function changeOrientation(from, to) {
-          layout.hide(from);
-          layout.show(to);
-          layout.open(to);
-          pane = to;
-          localStorage[paneKey] = pane;
+        var orientations = {
+          south: { label: '▿', desc: 'Move output pane to the bottom' },
+          east: { label: '▹', desc: 'Move output pane to the right' },
+        };
+
+        function setOrientationButton(dir) {
+          var o = orientations[dir];
+          $('#orientation-button').attr('title', o.desc).html(o.label);
         }
 
-        $('.orientation-btn.vert').click(function() {
-          changeOrientation('south', 'east');
-        });
-        $('.orientation-btn.horiz').click(function() {
-          changeOrientation('east', 'south');
+        function otherOrientation(dir) {
+          if (dir == 'south') {
+            return 'east';
+          }
+          return 'south';
+        }
+
+        setOrientationButton(otherOrientation(pane));
+
+        $('#orientation-button').click(function() {
+          layout.hide(pane);
+          setOrientationButton(pane);
+          pane = otherOrientation(pane);
+          layout.show(pane);
+          layout.open(pane);
+          localStorage[paneKey] = pane;
         });
 
         var out = $('.out');
@@ -169,15 +183,15 @@ a:hover {
 }
 
 .files {
-  list-style: none;
-  margin: 20px;
-  padding: 0;
   column-count: auto;
   -moz-column-count: auto;
   -webkit-column-count: auto;
   column-width: 140px;
   -moz-column-width: 140px;
   -webkit-column-width: 140px;
+  list-style: none;
+  margin: 20px;
+  padding: 0;
 }
 
 .files li {
@@ -250,7 +264,7 @@ a:hover {
   padding: 0 20px !important;
 }
 
-.ui-layout-south {
+.ui-layout-south, .ui-layout-north {
   padding: 0 !important;
 }
 
@@ -289,24 +303,20 @@ a:hover {
   background: #e0ebf5;
   border: 1px solid #375eab;
   border-radius: 5px;
+  color: #000;
   cursor: pointer;
+  display: inline-block;
+  min-width: 16px;
   padding: 10px;
+  text-align: center;
+}
+
+.button:hover {
+  text-decoration: none;
 }
 
 .buttons {
   margin: 12px;
-}
-
-.orientation-btn {
-  background: #e0ebf5;
-  border: 1px solid #375eab;
-  border-radius: 3px;
-  cursor: pointer;
-  position: fixed;
-  right: 5px;
-  text-align: center;
-  top: 5px;
-  width: 20px;
 }
 `,
 	"oracle.js": `// Copyright 2013 Frederik Zipp.  All rights reserved.
@@ -619,7 +629,7 @@ function jumpTo(line) {
 
   // scroll into view with 3 lines of padding above
   $('#content').animate({
-    scrollTop: $('#content').scrollTop() + l.offset().top - l.height()*3
+    scrollTop: $('#content').scrollTop() + l.offset().top - l.height()*3 - $('#top').height()
   });
 }
 

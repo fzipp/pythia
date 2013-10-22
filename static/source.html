@@ -5,8 +5,6 @@
   license that can be found in the LICENSE file.
 -->
 
-{{define "home-link"}}<p class="home-link"><a href="/">Back to scope index</a></p>{{end}}
-
 <html>
   <head>
     <meta charset="utf-8">
@@ -14,30 +12,28 @@
     <link rel="stylesheet" href="static/style.css">
   </head>
   <body style="padding: 0;">
-    <div class="ui-layout-center" id="content">
-      <h1>Source file {{.}}</h1>
+    <div class="ui-layout-north" id="top">
       <div style="overflow: hidden">
-        <div style="float: left">
-          Select or click within the source code to consult the oracle.
-          {{template "home-link"}}
+        <div class="buttons" style="float: left">
+          <a href="/" class="button" title="Back to scope index">←</a>
         </div>
+        <h1 style="margin: 18px 0; float: left">Source file {{.}}</h1>
         <div class="buttons" style="float: right; margin-right: 80px;">
           <span id="impl-button"></span>
           <span id="cgraph-button"></span>
+          <span id="orientation-button" class="button" style="margin-left: 10px"></span>
         </div>
       </div>
+    </div>
+    <div class="ui-layout-center" id="content">
+      <p>Select or click within the source code to consult the oracle.</p>
       <div id="source"></div>
-      {{template "home-link"}}
     </div>
     <div class="ui-layout-south">
       <div class="out"></div>
-      <div class="orientation-btn vert"
-           title="Switch to vertical output pane">&#x7c;</div>
     </div>
     <div class="ui-layout-east">
       <div class="out"></div>
-      <div class="orientation-btn horiz"
-           title="Switch to horizontal output pane">&mdash;</div>
     </div>
 
     <script src="static/jquery.min.js"></script>
@@ -50,9 +46,14 @@
         var pane = localStorage[paneKey] || 'south';
 
         var goldenRatio = 0.382;
-        var body = $('body')
+        var body = $('body');
         var layout = body.layout({
           applyDefaultStyles: true,
+          north: {
+            spacing_open: 1,
+            resizable: false,
+            closable: false
+          },
           south: {
             size: 200,
             initClosed: true,
@@ -65,19 +66,32 @@
           }
         });
 
-        function changeOrientation(from, to) {
-          layout.hide(from);
-          layout.show(to);
-          layout.open(to);
-          pane = to;
-          localStorage[paneKey] = pane;
+        var orientations = {
+          south: { label: '▿', desc: 'Move output pane to the bottom' },
+          east: { label: '▹', desc: 'Move output pane to the right' },
+        };
+
+        function setOrientationButton(dir) {
+          var o = orientations[dir];
+          $('#orientation-button').attr('title', o.desc).html(o.label);
         }
 
-        $('.orientation-btn.vert').click(function() {
-          changeOrientation('south', 'east');
-        });
-        $('.orientation-btn.horiz').click(function() {
-          changeOrientation('east', 'south');
+        function otherOrientation(dir) {
+          if (dir == 'south') {
+            return 'east';
+          }
+          return 'south';
+        }
+
+        setOrientationButton(otherOrientation(pane));
+
+        $('#orientation-button').click(function() {
+          layout.hide(pane);
+          setOrientationButton(pane);
+          pane = otherOrientation(pane);
+          layout.show(pane);
+          layout.open(pane);
+          localStorage[paneKey] = pane;
         });
 
         var out = $('.out');
