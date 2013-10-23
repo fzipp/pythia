@@ -23,7 +23,7 @@ var Files = map[string]string{
       <label for="show-std">Show standard packages</label>
     </p>
     {{range .Packages}}
-    <div class="pkg {{cond (stdpkg .Pkg.Path) "std" ""}}">
+    <div class="pkg {{if stdpkg .Pkg.Path}}std{{end}}">
       <h2>{{.Pkg.Path}}</h2>
       <ul class="files">
       {{range .Files}}
