@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8' />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="description" content="Pythia : Web frontend for the Go source code oracle" />
+
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+
+    <title>Pythia</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/fzipp/pythia">View on GitHub</a>
+
+          <h1 id="project_title">Pythia</h1>
+          <h2 id="project_tagline">Web frontend for the Go source code oracle</h2>
+
+            <section id="downloads">
+              <a class="zip_download_link" href="https://github.com/fzipp/pythia/zipball/master">Download this project as a .zip file</a>
+              <a class="tar_download_link" href="https://github.com/fzipp/pythia/tarball/master">Download this project as a tar.gz file</a>
+            </section>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+        <p>Pythia is a web frontend for the <a href="http://code.google.com/p/go/source/browse/oracle/?repo=tools">Go source code oracle</a>, which is a source
+code comprehension tool for Go programs.</p>
+
+<p>For more information on the Go oracle, see the <a href="https://groups.google.com/d/msg/golang-nuts/CwdIJZs6Tfc/GX7ixTK_Dd4J">original announcement</a>.</p>
+
+<h3>
+<a name="installing-from-source" class="anchor" href="#installing-from-source"><span class="octicon octicon-link"></span></a>Installing from source</h3>
+
+<p>Pythia requires a recent (= 1.2RC or tip) version of the GOROOT libraries.</p>
+
+<p>To install, run</p>
+
+<pre><code>$ go get github.com/fzipp/pythia
+</code></pre>
+
+<p>You will now find a <code>pythia</code> binary in your <code>$GOPATH/bin</code> directory.</p>
+
+<h3>
+<a name="running" class="anchor" href="#running"><span class="octicon octicon-link"></span></a>Running</h3>
+
+<p>Start the web application with a package path, e.g.:</p>
+
+<pre><code>$pythia net/http
+</code></pre>
+
+<p>By default it will listen on port :8080 and try to launch the application
+in your browser. You can choose a different port via the <code>-http</code> flag, e.g.:</p>
+
+<pre><code>$ pythia -http=:6060 fmt
+</code></pre>
+
+<p>Run <code>pythia -help</code> for more information.</p>
+      </section>
+    </div>
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">Pythia maintained by <a href="https://github.com/fzipp">fzipp</a></p>
+        <p>Published with <a href="http://pages.github.com">GitHub Pages</a></p>
+      </footer>
+    </div>
+
+    
+
+  </body>
+</html>
