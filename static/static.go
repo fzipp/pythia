@@ -339,19 +339,24 @@ var modes = [
   {id: 'callees', menu: Filter.YES, name: 'Call targets',
    desc: 'Show possible callees of the function call at the current point.'},
   {id: 'callers', menu: Filter.YES, name: 'Callers',
-   desc: 'Show the set of callers of the function containing the current point.'},
+   desc: 'Show the set of callers of the function containing the ' +
+         'current point.'},
   {id: 'callgraph', menu: Filter.NO, name: 'Call graph',
    desc: 'Show the callgraph of the current program.'},
   {id: 'callstack', menu: Filter.YES, name: 'Call stack',
-   desc: 'Show an arbitrary path from a root of the call graph to the function containing the current point.'},
+   desc: 'Show an arbitrary path from a root of the call graph to the ' +
+         'function containing the current point.'},
   {id: 'freevars', menu: Filter.RANGE, name: 'Free variables',
    desc: 'Enumerate the free variables of the current selection.'},
   {id: 'implements', menu: Filter.NO, name: 'Implements',
-   desc: 'Describe the \'implements\' relation for types in the package of the current file.'},
+   desc: 'Describe the \'implements\' relation for types in the package ' +
+         'of the current file.'},
   {id: 'peers', menu: Filter.YES, name: 'Channel peers',
-   desc: 'Enumerate the set of possible corresponding sends/receives for this channel receive/send operation.'},
+   desc: 'Enumerate the set of possible corresponding sends/receives for ' +
+         'this channel receive/send operation.'},
   {id: 'referrers', menu: Filter.YES, name: 'Referrers',
-   desc: 'Enumerate all references to the object denoted by the selected identifier.'}
+   desc: 'Enumerate all references to the object denoted by the selected ' +
+         'identifier.'}
 ];
 
 var message = {
@@ -408,7 +413,7 @@ function init(source, output, file) {
     if (s) {
       loadAndShowSource(s.file, s.line, s.sel);
     }
-  }
+  };
 }
 
 var marker = '\0';
@@ -436,7 +441,7 @@ function selectionMarkOffsets() {
   var marked = code.text();
   return {
     startOffset: marked.indexOf(marker),
-    endOffset: marked.lastIndexOf(marker)-1
+    endOffset: marked.lastIndexOf(marker) - 1
   };
 }
 
@@ -575,7 +580,7 @@ function loadAndShowSource(file, line, sel) {
 function history(method, file, line, sel) {
   var url = 'source?' + $.param({'file': file});
   if (line) {
-    url += '#L'+line;
+    url += '#L' + line;
   }
   window.history[method]({'file': file, 'line': line, 'sel': sel}, '', url);
 }
@@ -609,7 +614,7 @@ function replaceSource(src) {
 function showNumbers(n) {
   nums.empty();
   for (var i = 1; i <= n; i++) {
-    nums.append($('<span>').attr('id', 'L'+i).text(i)).append('<br>');
+    nums.append($('<span>').attr('id', 'L' + i).text(i)).append('<br>');
   }
 }
 
@@ -624,17 +629,18 @@ function jumpTo(line) {
     $('#content').scrollTop(0);
     return;
   }
-  var l = $('#L'+line);
+  var l = $('#L' + line);
   l.addClass('selection', 100).delay(300).removeClass('selection', 600);
 
   // scroll into view with 3 lines of padding above
   $('#content').animate({
-    scrollTop: $('#content').scrollTop() + l.offset().top - l.height()*3 - $('#top').height()
+    scrollTop: $('#content').scrollTop() + l.offset().top -
+               l.height() * 3 - $('#top').height()
   });
 }
 
 function countLines(s) {
-  return (s.match(/\n/g)||[]).length;
+  return (s.match(/\n/g) || []).length;
 }
 
 function modeMenu() {
@@ -676,7 +682,7 @@ function makeQueryButton(elem, modeId) {
 function getByteOffsets(s, range) {
   var a = getUTF8Length(s, 0, range.startOffset);
   var b = getUTF8Length(s, range.startOffset, range.endOffset);
-  return {startOffset: a, endOffset: a+b};
+  return {startOffset: a, endOffset: a + b};
 }
 
 // From http://stackoverflow.com/a/12206089
