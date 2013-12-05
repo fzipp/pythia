@@ -200,7 +200,7 @@ function appendLinkified(element, text) {
         fromLine: parseInt(match[2], 10),
         fromCol: parseInt(match[3], 10),
         toLine: parseInt(match[4], 10),
-        toCol: parseInt(match[5], 10),
+        toCol: parseInt(match[5], 10)
       };
       var rest = match[6];
       var link = sourceLink(file, sel, arrow + rest, line);
@@ -213,7 +213,7 @@ function appendLinkified(element, text) {
         fromLine: parseInt(match[2], 10),
         fromCol: parseInt(match[3], 10),
         toLine: parseInt(match[2], 10),
-        toCol: parseInt(match[3], 10),
+        toCol: parseInt(match[3], 10)
       };
       var rest = match[4];
       var link = sourceLink(file, sel, arrow + rest, line);
