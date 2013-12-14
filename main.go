@@ -161,6 +161,6 @@ func startBrowser(url string) bool {
 // cmdLine returns what the command line would look like if the oracle was
 // invoked via command line with the given arguments.
 func cmdLine(mode, pos, format string, scope []string) string {
-	return fmt.Sprintf("oracle %s -pos=%s -format=%s %s",
-		mode, pos, format, strings.Join(scope, " "))
+	return fmt.Sprintf("oracle -pos=%s -format=%s %s %s",
+		pos, format, mode, strings.Join(scope, " "))
 }
