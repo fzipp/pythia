@@ -326,36 +326,32 @@ var oracle = (function() {
 
 'use strict';
 
-var Filter = {
-  YES: function(range) { return true; },
-  NO: function(range) { return false; },
-  RANGE: function(range) { return range.startOffset != range.endOffset; }
-};
-
 var modes = [
-  {id: 'describe', menu: Filter.YES, name: 'Describe',
+  {id: 'definition', menu: false, name: 'Definition',
+   desc: 'Show the definition of the selected identifier.'},
+  {id: 'describe', menu: true, name: 'Describe',
    desc: 'Describe the selected syntax, its kind, type and methods.'},
-  {id: 'callees', menu: Filter.YES, name: 'Call targets',
+  {id: 'callees', menu: true, name: 'Call targets',
    desc: 'Show possible callees of the function call at the current point.'},
-  {id: 'callers', menu: Filter.YES, name: 'Callers',
+  {id: 'callers', menu: true, name: 'Callers',
    desc: 'Show the set of callers of the function containing the ' +
          'current point.'},
-  {id: 'callgraph', menu: Filter.NO, name: 'Call graph',
+  {id: 'callgraph', menu: false, name: 'Call graph',
    desc: 'Show the callgraph of the current program.'},
-  {id: 'callstack', menu: Filter.YES, name: 'Call stack',
+  {id: 'callstack', menu: true, name: 'Call stack',
    desc: 'Show an arbitrary path from a root of the call graph to the ' +
          'function containing the current point.'},
-  {id: 'freevars', menu: Filter.RANGE, name: 'Free variables',
+  {id: 'freevars', menu: true, name: 'Free variables',
    desc: 'Enumerate the free variables of the current selection.'},
-  {id: 'implements', menu: Filter.YES, name: 'Implements',
+  {id: 'implements', menu: true, name: 'Implements',
    desc: 'Implements displays the "implements" relation as it pertains ' +
          'to the selected type.'},
-  {id: 'peers', menu: Filter.YES, name: 'Channel peers',
+  {id: 'peers', menu: true, name: 'Channel peers',
    desc: 'Enumerate the set of possible corresponding sends/receives for ' +
          'this channel receive/send operation.'},
-  {id: 'pointsto', menu: Filter.YES, name: 'Points to',
+  {id: 'pointsto', menu: true, name: 'Points to',
    desc: 'Show what the selected expression points to.'},
-  {id: 'referrers', menu: Filter.YES, name: 'Referrers',
+  {id: 'referrers', menu: true, name: 'Referrers',
    desc: 'Enumerate all references to the object denoted by the selected ' +
          'identifier.'}
 ];
@@ -478,12 +474,11 @@ function isRangeWithinElement(range, elem) {
 }
 
 function filterModes(menu, range) {
-  queryApplicableModes(range, function(modes) {
-    console.log(modes);
+  queryApplicableModes(range, function(modeIds) {
     menu.find('li').each(function() {
       var mode = $(this).data('mode');
-      var applicable = $.inArray(mode.id, modes) >= 0;
-      $(this).toggleClass('disabled', !mode.menu(range) || !applicable);
+      var applicable = $.inArray(mode.id, modeIds) >= 0;
+      $(this).toggleClass('disabled', !applicable);
     });
   });
 }
@@ -663,7 +658,7 @@ function countLines(s) {
 function modeMenu() {
   var m = $('<ul class="menu">').hide();
   $.each(modes, function(i, mode) {
-    if (mode.menu == Filter.NO) {
+    if (!mode.menu) {
       return;
     }
     var item = $('<li>').text(mode.name).attr('title', mode.desc)
