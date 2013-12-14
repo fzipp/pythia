@@ -149,7 +149,6 @@ var Files = map[string]string{
         });
         oracle.init($('#source'), out, '{{.}}');
         oracle.makeQueryButton($('#cgraph-button'), 'callgraph');
-        oracle.makeQueryButton($('#impl-button'), 'implements');
       });
     </script>
   </body>
@@ -348,9 +347,9 @@ var modes = [
          'function containing the current point.'},
   {id: 'freevars', menu: Filter.RANGE, name: 'Free variables',
    desc: 'Enumerate the free variables of the current selection.'},
-  {id: 'implements', menu: Filter.NO, name: 'Implements',
-   desc: 'Describe the \'implements\' relation for types in the package ' +
-         'of the current file.'},
+  {id: 'implements', menu: Filter.YES, name: 'Implements',
+   desc: 'Implements displays the "implements" relation as it pertains ' +
+         'to the selected type.'},
   {id: 'peers', menu: Filter.YES, name: 'Channel peers',
    desc: 'Enumerate the set of possible corresponding sends/receives for ' +
          'this channel receive/send operation.'},
