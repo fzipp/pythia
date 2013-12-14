@@ -14,7 +14,7 @@ var Filter = {
 
 var modes = [
   {id: 'describe', menu: Filter.YES, name: 'Describe',
-   desc: 'Describe the expression at the current point.'},
+   desc: 'Describe the selected syntax, its kind, type and methods.'},
   {id: 'callees', menu: Filter.YES, name: 'Call targets',
    desc: 'Show possible callees of the function call at the current point.'},
   {id: 'callers', menu: Filter.YES, name: 'Callers',
@@ -33,6 +33,8 @@ var modes = [
   {id: 'peers', menu: Filter.YES, name: 'Channel peers',
    desc: 'Enumerate the set of possible corresponding sends/receives for ' +
          'this channel receive/send operation.'},
+  {id: 'pointsto', menu: Filter.YES, name: 'Points to',
+   desc: 'Show what the selected expression points to.'},
   {id: 'referrers', menu: Filter.YES, name: 'Referrers',
    desc: 'Enumerate all references to the object denoted by the selected ' +
          'identifier.'}
