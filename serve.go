@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"go/build"
 	"io"
 	"io/ioutil"
 	"log"
@@ -128,12 +129,7 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	if *verbose {
 		log.Println(req.RemoteAddr, cmdLine(mode, pos, format, args))
 	}
-	qpos, err := oracle.ParseQueryPos(imp, pos, false)
-	if err != nil {
-		io.WriteString(w, err.Error())
-		return
-	}
-	res, err := queryOracle(mode, qpos)
+	res, err := queryOracle(mode, pos)
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
@@ -141,9 +137,16 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	writeResult(w, res, format)
 }
 
-func queryOracle(mode string, qpos *oracle.QueryPos) (*oracle.Result, error) {
+func queryOracle(mode, pos string) (*oracle.Result, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
+	if mode == "what" {
+		return oracle.Query(args, mode, pos, nil, &build.Default, false)
+	}
+	qpos, err := oracle.ParseQueryPos(imp, pos, false)
+	if err != nil {
+		return nil, err
+	}
 	return ora.Query(mode, qpos)
 }
 
@@ -151,7 +154,7 @@ func queryOracle(mode string, qpos *oracle.QueryPos) (*oracle.Result, error) {
 // format, "json" or "plain".
 func writeResult(w io.Writer, res *oracle.Result, format string) {
 	if format == "json" {
-		b, err := json.Marshal(res)
+		b, err := json.Marshal(res.Serial())
 		if err != nil {
 			io.WriteString(w, err.Error())
 			return

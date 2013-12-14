@@ -478,9 +478,25 @@ function isRangeWithinElement(range, elem) {
 }
 
 function filterModes(menu, range) {
-  menu.find('li').each(function() {
-    $(this).toggleClass('disabled', !$(this).data('mode').menu(range));
+  queryApplicableModes(range, function(modes) {
+    console.log(modes);
+    menu.find('li').each(function() {
+      var mode = $(this).data('mode');
+      var applicable = $.inArray(mode.id, modes) >= 0;
+      $(this).toggleClass('disabled', !mode.menu(range) || !applicable);
+    });
   });
+}
+
+function queryApplicableModes(range, callback) {
+  var b = getByteOffsets(code.text(), range);
+  query('what', pos(currentFile, b.startOffset, b.endOffset), 'json')
+    .done(function(data) {
+      callback(data.what.modes);
+    })
+    .fail(function(e) {
+      console.log(e);
+    });
 }
 
 function queryAction(mode, start, end) {
