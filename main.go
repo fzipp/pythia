@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"go/build"
 	"go/token"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -91,7 +90,7 @@ func main() {
 	imp = importer.New(&importer.Config{Build: &build.Default})
 	ora, err = oracle.New(imp, args, nil, false)
 	if err != nil {
-		log.Fatal(err)
+		exitError(err)
 	}
 	files = scopeFiles(imp)
 	packages = imp.AllPackages()
@@ -102,7 +101,7 @@ func main() {
 	srv := &http.Server{Addr: *httpAddr}
 	l, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
-		log.Fatal(err)
+		exitError(err)
 	}
 	if *open {
 		url := fmt.Sprintf("http://localhost%s/", *httpAddr)
@@ -110,7 +109,7 @@ func main() {
 			fmt.Println(url)
 		}
 	}
-	log.Fatal(srv.Serve(l))
+	exitError(srv.Serve(l))
 }
 
 func registerHandlers() {
@@ -156,6 +155,11 @@ func startBrowser(url string) bool {
 	}
 	cmd := exec.Command(args[0], append(args[1:], url)...)
 	return cmd.Start() == nil
+}
+
+func exitError(err error) {
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
 }
 
 // cmdLine returns what the command line would look like if the oracle was
