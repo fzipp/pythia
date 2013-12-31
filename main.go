@@ -27,6 +27,7 @@ var (
 	httpAddr = flag.String("http", ":8080", "HTTP listen address")
 	verbose  = flag.Bool("v", false, "Verbose mode: print incoming queries")
 	open     = flag.Bool("open", true, "Try to open browser")
+	tags     = flag.String("tags", "", "Tags to use when importing packages")
 	args     []string
 	files    []string
 	packages []*importer.PackageInfo
@@ -51,6 +52,9 @@ const helpMessage = `Web frontend for the Go source code oracle.
 Usage: pythia [<flag> ...] <args> ...
 
 The -http flag specifies the HTTP service address (e.g., ':6060').
+
+The -tags flag specifies comma separated tags to use when importing
+code (e.g., 'foo,!darwin').
 
 The -open flag determines, whether the application should try to
 open the browser. It is set to 'true' by default. If set to 'false'
@@ -87,7 +91,9 @@ func main() {
 	}
 
 	var err error
-	imp = importer.New(&importer.Config{Build: &build.Default})
+	settings := build.Default
+	settings.BuildTags = strings.Split(*tags, ",")
+	imp = importer.New(&importer.Config{Build: &settings})
 	ora, err = oracle.New(imp, args, nil, false)
 	if err != nil {
 		exitError(err)
