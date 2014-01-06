@@ -31,13 +31,3 @@ in your browser. You can choose a different port via the `-http` flag, e.g.:
 
 Run `pythia -help` for more information.
 
-
-Note to contributors
---------------------
-
-The static files such as JavaScript, HTML template and CSS files are baked
-into the binary via the generated file `static.go`. If you change one of the
-said files you have to regenerate `static.go` using the bake tool, which can
-be found in the same directory. After that 'go build' the project for your
-changes to take effect.
-
