@@ -93,7 +93,11 @@ func main() {
 	var err error
 	settings := build.Default
 	settings.BuildTags = strings.Split(*tags, ",")
-	imp = importer.New(&importer.Config{Build: &settings})
+	conf := importer.Config{
+		Build:         &settings,
+		SourceImports: true,
+	}
+	imp = importer.New(&conf)
 	ora, err = oracle.New(imp, args, nil, false)
 	if err != nil {
 		exitError(err)
