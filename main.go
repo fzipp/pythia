@@ -62,7 +62,7 @@ the browser will not be launched.
 
 The -v flag enables verbose mode, in which every incoming query
 to the oracle is logged to the standard output.
-
+` + importer.FromArgsUsage + `
 Examples:
 
 Start pythia with the scope of package oracle:
@@ -71,16 +71,16 @@ Start pythia with the scope of package oracle:
 Start pythia with the scope of package image/png on port 8081,
 but don't open the browser:
 % pythia -http=:8081 -open=false image/png
-` + importer.FromArgsUsage
+`
 
 func main() {
-	flag.Usage = func() { fmt.Fprint(os.Stderr, useHelp) }
+	flag.Usage = func() {}
 	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Println(helpMessage)
-			fmt.Println("Flags:")
-			flag.PrintDefaults()
+		} else {
+			fmt.Fprint(os.Stderr, useHelp)
 		}
 		os.Exit(2)
 	}
