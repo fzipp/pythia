@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/oracle"
+	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
+	"github.com/fzipp/pythia/third_party/go.tools/oracle"
 )
 
 var (

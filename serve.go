@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"code.google.com/p/go.tools/go/loader"
-	"code.google.com/p/go.tools/godoc"
-	"code.google.com/p/go.tools/oracle"
 	"github.com/fzipp/pythia/static"
+	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
+	"github.com/fzipp/pythia/third_party/go.tools/godoc"
+	"github.com/fzipp/pythia/third_party/go.tools/oracle"
 )
 
 var (
