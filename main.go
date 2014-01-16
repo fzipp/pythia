@@ -31,7 +31,7 @@ var (
 	args     []string
 	files    []string
 	packages []*importer.PackageInfo
-	imp      *importer.Importer
+	iprog    *importer.Program
 	ora      *oracle.Oracle
 	mutex    sync.Mutex
 )
@@ -71,7 +71,7 @@ Start pythia with the scope of package oracle:
 Start pythia with the scope of package image/png on port 8081,
 but don't open the browser:
 % pythia -http=:8081 -open=false image/png
-` + importer.InitialPackagesUsage
+` + importer.FromArgsUsage
 
 func main() {
 	flag.Usage = func() { fmt.Fprint(os.Stderr, useHelp) }
@@ -97,14 +97,20 @@ func main() {
 		Build:         &settings,
 		SourceImports: true,
 	}
-	imp = importer.New(&conf)
-	ora, err = oracle.New(imp, args, nil, false)
+	_, err = conf.FromArgs(args)
 	if err != nil {
 		exitError(err)
 	}
-	files = scopeFiles(imp)
-	packages = imp.AllPackages()
-	sort.Sort(byPath(packages))
+	iprog, err = conf.Load()
+	if err != nil {
+		exitError(err)
+	}
+	ora, err = oracle.New(iprog, nil, false)
+	if err != nil {
+		exitError(err)
+	}
+	files = scopeFiles(iprog)
+	packages = sortedPackages(iprog)
 
 	registerHandlers()
 
@@ -138,11 +144,21 @@ func (p byPath) Len() int           { return len(p) }
 func (p byPath) Less(i, j int) bool { return p[i].Pkg.Path() < p[j].Pkg.Path() }
 func (p byPath) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
+// sortedPackages returns all packages of a program, sorted by package path.
+func sortedPackages(iprog *importer.Program) []*importer.PackageInfo {
+	pkgs := make([]*importer.PackageInfo, 0, len(iprog.AllPackages))
+	for _, p := range iprog.AllPackages {
+		pkgs = append(pkgs, p)
+	}
+	sort.Sort(byPath(pkgs))
+	return pkgs
+}
+
 // scopeFiles returns a new slice containing the full paths of all the files
 // imported by an importer, sorted in increasing order.
-func scopeFiles(imp *importer.Importer) []string {
+func scopeFiles(iprog *importer.Program) []string {
 	files := make([]string, 0)
-	imp.Fset.Iterate(func(f *token.File) bool {
+	iprog.Fset.Iterate(func(f *token.File) bool {
 		files = append(files, f.Name())
 		return true
 	})

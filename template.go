@@ -15,7 +15,7 @@ import (
 )
 
 var funcs = template.FuncMap{
-	"filename": func(f *ast.File) string { return imp.Fset.File(f.Pos()).Name() },
+	"filename": func(f *ast.File) string { return iprog.Fset.File(f.Pos()).Name() },
 	"base":     filepath.Base,
 	"stdpkg":   isStandardPackage,
 }
