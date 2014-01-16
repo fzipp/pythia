@@ -31,7 +31,7 @@ var (
 	args     []string
 	files    []string
 	packages []*loader.PackageInfo
-	iprog    *loader.Program
+	prog     *loader.Program
 	ora      *oracle.Oracle
 	mutex    sync.Mutex
 )
@@ -101,16 +101,16 @@ func main() {
 	if err != nil {
 		exitError(err)
 	}
-	iprog, err = conf.Load()
+	prog, err = conf.Load()
 	if err != nil {
 		exitError(err)
 	}
-	ora, err = oracle.New(iprog, nil, false)
+	ora, err = oracle.New(prog, nil, false)
 	if err != nil {
 		exitError(err)
 	}
-	files = scopeFiles(iprog)
-	packages = sortedPackages(iprog)
+	files = scopeFiles(prog)
+	packages = sortedPackages(prog)
 
 	registerHandlers()
 
@@ -145,9 +145,9 @@ func (p byPath) Less(i, j int) bool { return p[i].Pkg.Path() < p[j].Pkg.Path() }
 func (p byPath) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 // sortedPackages returns all packages of a program, sorted by package path.
-func sortedPackages(iprog *loader.Program) []*loader.PackageInfo {
-	pkgs := make([]*loader.PackageInfo, 0, len(iprog.AllPackages))
-	for _, p := range iprog.AllPackages {
+func sortedPackages(prog *loader.Program) []*loader.PackageInfo {
+	pkgs := make([]*loader.PackageInfo, 0, len(prog.AllPackages))
+	for _, p := range prog.AllPackages {
 		pkgs = append(pkgs, p)
 	}
 	sort.Sort(byPath(pkgs))
@@ -156,9 +156,9 @@ func sortedPackages(iprog *loader.Program) []*loader.PackageInfo {
 
 // scopeFiles returns a new slice containing the full paths of all the files
 // imported by the loader, sorted in increasing order.
-func scopeFiles(iprog *loader.Program) []string {
+func scopeFiles(prog *loader.Program) []string {
 	files := make([]string, 0)
-	iprog.Fset.Iterate(func(f *token.File) bool {
+	prog.Fset.Iterate(func(f *token.File) bool {
 		files = append(files, f.Name())
 		return true
 	})

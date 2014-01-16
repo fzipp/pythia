@@ -143,7 +143,7 @@ func queryOracle(mode, pos string) (*oracle.Result, error) {
 	if mode == "what" {
 		return oracle.Query(args, mode, pos, nil, &build.Default, false)
 	}
-	qpos, err := oracle.ParseQueryPos(iprog, pos, false)
+	qpos, err := oracle.ParseQueryPos(prog, pos, false)
 	if err != nil {
 		return nil, err
 	}
