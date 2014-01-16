@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"code.google.com/p/go.tools/go/loader"
 	"code.google.com/p/go.tools/godoc"
-	"code.google.com/p/go.tools/importer"
 	"code.google.com/p/go.tools/oracle"
 	"github.com/fzipp/pythia/static"
 )
@@ -32,7 +32,7 @@ var (
 func serveIndex(w http.ResponseWriter, req *http.Request) {
 	err := indexView.Execute(w, struct {
 		Scope    string
-		Packages []*importer.PackageInfo
+		Packages []*loader.PackageInfo
 	}{
 		Scope:    strings.Join(args, " "),
 		Packages: packages,

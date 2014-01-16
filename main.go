@@ -19,7 +19,7 @@ import (
 	"strings"
 	"sync"
 
-	"code.google.com/p/go.tools/importer"
+	"code.google.com/p/go.tools/go/loader"
 	"code.google.com/p/go.tools/oracle"
 )
 
@@ -30,8 +30,8 @@ var (
 	tags     = flag.String("tags", "", "Tags to use when importing packages")
 	args     []string
 	files    []string
-	packages []*importer.PackageInfo
-	iprog    *importer.Program
+	packages []*loader.PackageInfo
+	iprog    *loader.Program
 	ora      *oracle.Oracle
 	mutex    sync.Mutex
 )
@@ -62,7 +62,7 @@ the browser will not be launched.
 
 The -v flag enables verbose mode, in which every incoming query
 to the oracle is logged to the standard output.
-` + importer.FromArgsUsage + `
+` + loader.FromArgsUsage + `
 Examples:
 
 Start pythia with the scope of package oracle:
@@ -93,7 +93,7 @@ func main() {
 	var err error
 	settings := build.Default
 	settings.BuildTags = strings.Split(*tags, ",")
-	conf := importer.Config{
+	conf := loader.Config{
 		Build:         &settings,
 		SourceImports: true,
 	}
@@ -138,15 +138,15 @@ func registerHandlers() {
 }
 
 // byPath makes a slice of package infos sortable by package path.
-type byPath []*importer.PackageInfo
+type byPath []*loader.PackageInfo
 
 func (p byPath) Len() int           { return len(p) }
 func (p byPath) Less(i, j int) bool { return p[i].Pkg.Path() < p[j].Pkg.Path() }
 func (p byPath) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 // sortedPackages returns all packages of a program, sorted by package path.
-func sortedPackages(iprog *importer.Program) []*importer.PackageInfo {
-	pkgs := make([]*importer.PackageInfo, 0, len(iprog.AllPackages))
+func sortedPackages(iprog *loader.Program) []*loader.PackageInfo {
+	pkgs := make([]*loader.PackageInfo, 0, len(iprog.AllPackages))
 	for _, p := range iprog.AllPackages {
 		pkgs = append(pkgs, p)
 	}
@@ -155,8 +155,8 @@ func sortedPackages(iprog *importer.Program) []*importer.PackageInfo {
 }
 
 // scopeFiles returns a new slice containing the full paths of all the files
-// imported by an importer, sorted in increasing order.
-func scopeFiles(iprog *importer.Program) []string {
+// imported by the loader, sorted in increasing order.
+func scopeFiles(iprog *loader.Program) []string {
 	files := make([]string, 0)
 	iprog.Fset.Iterate(func(f *token.File) bool {
 		files = append(files, f.Name())
