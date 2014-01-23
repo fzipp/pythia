@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fzipp/pythia/third_party/go.tools/call"
+	"github.com/fzipp/pythia/third_party/go.tools/go/callgraph"
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
 	"github.com/fzipp/pythia/third_party/go.tools/go/pointer"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
@@ -161,7 +161,7 @@ func doOneInput(input, filename string) bool {
 	}
 
 	// Create single-file main package and import its dependencies.
-	conf.CreateFromFiles(f)
+	conf.CreateFromFiles("main", f)
 	iprog, err := conf.Load()
 	if err != nil {
 		fmt.Println(err)
@@ -451,9 +451,9 @@ func checkTypesExpectation(e *expectation, ptr pointer.Pointer, typ types.Type) 
 
 var errOK = errors.New("OK")
 
-func checkCallsExpectation(prog *ssa.Program, e *expectation, callgraph call.Graph) bool {
+func checkCallsExpectation(prog *ssa.Program, e *expectation, cg callgraph.Graph) bool {
 	found := make(map[string]int)
-	err := call.GraphVisitEdges(callgraph, func(edge call.Edge) error {
+	err := callgraph.GraphVisitEdges(cg, func(edge callgraph.Edge) error {
 		// Name-based matching is inefficient but it allows us to
 		// match functions whose names that would not appear in an
 		// index ("<root>") or which are not unique ("func@1.2").

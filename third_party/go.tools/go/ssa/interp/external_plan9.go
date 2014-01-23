@@ -7,7 +7,7 @@ package interp
 import (
 	"syscall"
 
-	"github.com/fzipp/pythia/third_party/go.tools/ssa"
+	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
 )
 
 func ext۰syscall۰Close(fn *ssa.Function, args []value) value {

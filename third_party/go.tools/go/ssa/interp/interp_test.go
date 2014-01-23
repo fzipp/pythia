@@ -132,7 +132,7 @@ var gorootTestTests = []string{
 	// bench chan bugs fixedbugs interface ken.
 }
 
-// These are files in go.tools/ssa/interp/testdata/.
+// These are files in go.tools/go/ssa/interp/testdata/.
 var testdataTests = []string{
 	"boundmeth.go",
 	"coverage.go",
@@ -171,7 +171,7 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 	conf := loader.Config{SourceImports: true}
 	// TODO(adonovan): add the following packages' tests, which pass:
 	// "flag", "unicode", "unicode/utf8", "testing", "log", "path".
-	if err := conf.CreateFromFilenames(inputs...); err != nil {
+	if err := conf.CreateFromFilenames("", inputs...); err != nil {
 		t.Errorf("CreateFromFilenames(%s) failed: %s", inputs, err)
 		return false
 	}
@@ -319,7 +319,7 @@ func TestTestmainPackage(t *testing.T) {
 // CreateTestMainPackage should return nil if there were no tests.
 func TestNullTestmainPackage(t *testing.T) {
 	var conf loader.Config
-	if err := conf.CreateFromFilenames("testdata/b_test.go"); err != nil {
+	if err := conf.CreateFromFilenames("", "testdata/b_test.go"); err != nil {
 		t.Fatalf("ParseFile failed: %s", err)
 	}
 	iprog, err := conf.Load()

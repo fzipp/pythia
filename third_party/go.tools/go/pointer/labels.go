@@ -9,7 +9,7 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/fzipp/pythia/third_party/go.tools/call"
+	"github.com/fzipp/pythia/third_party/go.tools/go/callgraph"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
 )
@@ -57,7 +57,7 @@ func (l Label) ReflectType() types.Type {
 // Context returns the analytic context in which this label's object was allocated,
 // or nil for global objects: global, const, and shared contours for functions.
 //
-func (l Label) Context() call.GraphNode {
+func (l Label) Context() callgraph.Node {
 	return l.obj.cgn
 }
 

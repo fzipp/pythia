@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/fzipp/pythia/third_party/go.tools/call"
+	"github.com/fzipp/pythia/third_party/go.tools/go/callgraph"
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
 	"github.com/fzipp/pythia/third_party/go.tools/go/pointer"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
@@ -49,7 +49,7 @@ func main() {
 	}
 
 	// Create single-file main package and import its dependencies.
-	conf.CreateFromFiles(file)
+	conf.CreateFromFiles("main", file)
 
 	iprog, err := conf.Load()
 	if err != nil {
@@ -75,7 +75,7 @@ func main() {
 	// By converting to strings, we de-duplicate nodes
 	// representing the same function due to context sensitivity.
 	var edges []string
-	call.GraphVisitEdges(result.CallGraph, func(edge call.Edge) error {
+	callgraph.GraphVisitEdges(result.CallGraph, func(edge callgraph.Edge) error {
 		caller := edge.Caller.Func()
 		if caller.Pkg == mainPkg {
 			edges = append(edges, fmt.Sprint(caller, " --> ", edge.Callee.Func()))
