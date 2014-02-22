@@ -7,6 +7,9 @@ package ssa
 // This file implements the String() methods for all Value and
 // Instruction types.
 
+// TODO(adonovan): define WriteValue(*bytes.Buffer) and avoid creation
+// of garbage.
+
 import (
 	"bytes"
 	"fmt"
@@ -15,6 +18,7 @@ import (
 	"sort"
 
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
+	"github.com/fzipp/pythia/third_party/go.tools/go/types/typeutil"
 )
 
 // relName returns the name of v relative to i.
@@ -120,7 +124,7 @@ func printCall(v *CallCommon, prefix string, instr Instruction) string {
 		}
 		b.WriteString(relName(arg, instr))
 	}
-	if v.Signature().IsVariadic() {
+	if v.Signature().Variadic() {
 		b.WriteString("...")
 	}
 	b.WriteString(")")
@@ -197,6 +201,10 @@ func (v *Slice) String() string {
 	b.WriteString(":")
 	if v.High != nil {
 		b.WriteString(relName(v.High, v))
+	}
+	if v.Max != nil {
+		b.WriteString(":")
+		b.WriteString(relName(v.Max, v))
 	}
 	b.WriteString("]")
 	return b.String()
@@ -364,8 +372,18 @@ func (p *Package) String() string {
 	return "package " + p.Object.Path()
 }
 
-func (p *Package) DumpTo(w io.Writer) {
-	fmt.Fprintf(w, "%s:\n", p)
+var _ io.WriterTo = (*Package)(nil) // *Package implements io.Writer
+
+func (p *Package) WriteTo(w io.Writer) (int64, error) {
+	var buf bytes.Buffer
+	WritePackage(&buf, p)
+	n, err := w.Write(buf.Bytes())
+	return int64(n), err
+}
+
+// WritePackage writes to buf a human-readable summary of p.
+func WritePackage(buf *bytes.Buffer, p *Package) {
+	fmt.Fprintf(buf, "%s:\n", p)
 
 	var names []string
 	maxname := 0
@@ -380,58 +398,27 @@ func (p *Package) DumpTo(w io.Writer) {
 	for _, name := range names {
 		switch mem := p.Members[name].(type) {
 		case *NamedConst:
-			fmt.Fprintf(w, "  const %-*s %s = %s\n",
+			fmt.Fprintf(buf, "  const %-*s %s = %s\n",
 				maxname, name, mem.Name(), mem.Value.RelString(p.Object))
 
 		case *Function:
-			fmt.Fprintf(w, "  func  %-*s %s\n",
+			fmt.Fprintf(buf, "  func  %-*s %s\n",
 				maxname, name, types.TypeString(p.Object, mem.Type()))
 
 		case *Type:
-			fmt.Fprintf(w, "  type  %-*s %s\n",
+			fmt.Fprintf(buf, "  type  %-*s %s\n",
 				maxname, name, types.TypeString(p.Object, mem.Type().Underlying()))
-			for _, meth := range IntuitiveMethodSet(mem.Type()) {
-				fmt.Fprintf(w, "    %s\n", types.SelectionString(p.Object, meth))
+			for _, meth := range typeutil.IntuitiveMethodSet(mem.Type(), &p.Prog.MethodSets) {
+				fmt.Fprintf(buf, "    %s\n", types.SelectionString(p.Object, meth))
 			}
 
 		case *Global:
-			fmt.Fprintf(w, "  var   %-*s %s\n",
+			fmt.Fprintf(buf, "  var   %-*s %s\n",
 				maxname, name, types.TypeString(p.Object, mem.Type().(*types.Pointer).Elem()))
 		}
 	}
 
-	fmt.Fprintf(w, "\n")
-}
-
-// IntuitiveMethodSet returns the intuitive method set of a type, T.
-//
-// The result contains MethodSet(T) and additionally, if T is a
-// concrete type, methods belonging to *T if there is no similarly
-// named method on T itself.  This corresponds to user intuition about
-// method sets; this function is intended only for user interfaces.
-//
-// The order of the result is as for types.MethodSet(T).
-//
-// TODO(gri): move this to go/types?
-//
-func IntuitiveMethodSet(T types.Type) []*types.Selection {
-	var result []*types.Selection
-	mset := T.MethodSet()
-	if _, ok := T.Underlying().(*types.Interface); ok {
-		for i, n := 0, mset.Len(); i < n; i++ {
-			result = append(result, mset.At(i))
-		}
-	} else {
-		pmset := types.NewPointer(T).MethodSet()
-		for i, n := 0, pmset.Len(); i < n; i++ {
-			meth := pmset.At(i)
-			if m := mset.Lookup(meth.Obj().Pkg(), meth.Obj().Name()); m != nil {
-				meth = m
-			}
-			result = append(result, meth)
-		}
-	}
-	return result
+	fmt.Fprintf(buf, "\n")
 }
 
 func commaOk(x bool) string {

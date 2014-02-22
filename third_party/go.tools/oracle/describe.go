@@ -15,8 +15,8 @@ import (
 	"github.com/fzipp/pythia/third_party/go.tools/astutil"
 	"github.com/fzipp/pythia/third_party/go.tools/go/exact"
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
-	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
+	"github.com/fzipp/pythia/third_party/go.tools/go/types/typeutil"
 	"github.com/fzipp/pythia/third_party/go.tools/oracle/serial"
 )
 
@@ -712,7 +712,7 @@ func pathToString(path []ast.Node) string {
 
 func accessibleMethods(t types.Type, from *types.Package) []*types.Selection {
 	var methods []*types.Selection
-	for _, meth := range ssa.IntuitiveMethodSet(t) {
+	for _, meth := range typeutil.IntuitiveMethodSet(t, nil) {
 		if isAccessibleFrom(meth.Obj(), from) {
 			methods = append(methods, meth)
 		}

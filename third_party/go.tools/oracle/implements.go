@@ -47,44 +47,46 @@ func implements(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	}
 	allNamed = append(allNamed, types.Universe.Lookup("error").Type())
 
+	var msets types.MethodSetCache
+
 	// Test each named type.
 	var to, from, fromPtr []types.Type
 	for _, U := range allNamed {
 		if isInterface(T) {
-			if T.MethodSet().Len() == 0 {
+			if msets.MethodSet(T).Len() == 0 {
 				continue // empty interface
 			}
 			if isInterface(U) {
-				if U.MethodSet().Len() == 0 {
+				if msets.MethodSet(U).Len() == 0 {
 					continue // empty interface
 				}
 
 				// T interface, U interface
-				if !types.IsIdentical(T, U) {
-					if types.IsAssignableTo(U, T) {
+				if !types.Identical(T, U) {
+					if types.AssignableTo(U, T) {
 						to = append(to, U)
 					}
-					if types.IsAssignableTo(T, U) {
+					if types.AssignableTo(T, U) {
 						from = append(from, U)
 					}
 				}
 			} else {
 				// T interface, U concrete
-				if types.IsAssignableTo(U, T) {
+				if types.AssignableTo(U, T) {
 					to = append(to, U)
-				} else if pU := types.NewPointer(U); types.IsAssignableTo(pU, T) {
+				} else if pU := types.NewPointer(U); types.AssignableTo(pU, T) {
 					to = append(to, pU)
 				}
 			}
 		} else if isInterface(U) {
-			if U.MethodSet().Len() == 0 {
+			if msets.MethodSet(U).Len() == 0 {
 				continue // empty interface
 			}
 
 			// T concrete, U interface
-			if types.IsAssignableTo(T, U) {
+			if types.AssignableTo(T, U) {
 				from = append(from, U)
-			} else if pT := types.NewPointer(T); types.IsAssignableTo(pT, U) {
+			} else if pT := types.NewPointer(T); types.AssignableTo(pT, U) {
 				fromPtr = append(fromPtr, U)
 			}
 		}
@@ -113,7 +115,7 @@ type implementsResult struct {
 
 func (r *implementsResult) display(printf printfFunc) {
 	if isInterface(r.t) {
-		if r.t.MethodSet().Len() == 0 {
+		if types.NewMethodSet(r.t).Len() == 0 { // TODO(adonovan): cache mset
 			printf(r.pos, "empty interface type %s", r.t)
 			return
 		}

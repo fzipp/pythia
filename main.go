@@ -97,18 +97,12 @@ func main() {
 		Build:         &settings,
 		SourceImports: true,
 	}
-	_, err = conf.FromArgs(args)
-	if err != nil {
-		exitError(err)
-	}
+	_, err = conf.FromArgs(args, true)
+	exitOn(err)
 	prog, err = conf.Load()
-	if err != nil {
-		exitError(err)
-	}
+	exitOn(err)
 	ora, err = oracle.New(prog, nil, false)
-	if err != nil {
-		exitError(err)
-	}
+	exitOn(err)
 	files = scopeFiles(prog)
 	packages = sortedPackages(prog)
 
@@ -116,9 +110,7 @@ func main() {
 
 	srv := &http.Server{Addr: *httpAddr}
 	l, err := net.Listen("tcp", srv.Addr)
-	if err != nil {
-		exitError(err)
-	}
+	exitOn(err)
 	if *open {
 		url := fmt.Sprintf("http://localhost%s/", *httpAddr)
 		if !startBrowser(url) {
@@ -181,6 +173,12 @@ func startBrowser(url string) bool {
 	}
 	cmd := exec.Command(args[0], append(args[1:], url)...)
 	return cmd.Start() == nil
+}
+
+func exitOn(err error) {
+	if err != nil {
+		exitError(err)
+	}
 }
 
 func exitError(err error) {

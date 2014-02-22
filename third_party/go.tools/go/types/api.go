@@ -14,11 +14,11 @@
 //
 // Constant folding computes the exact constant value (exact.Value) for
 // every expression (ast.Expr) that is a compile-time constant.
-// Use Info.Values for the results of constant folding.
+// Use Info.Types[expr].Value for the results of constant folding.
 //
 // Type inference computes the type (Type) of every expression (ast.Expr)
 // and checks for compliance with the language specification.
-// Use Info.Types for the results of type evaluation.
+// Use Info.Types[expr].Type for the results of type inference.
 //
 package types
 
@@ -96,6 +96,9 @@ type Config struct {
 
 	// If Error != nil, it is called with each error found
 	// during type checking; err has dynamic type Error.
+	// Secondary errors (for instance, to enumerate all types
+	// involved in an invalid recursive type declaration) have
+	// error strings that start with a '\t' character.
 	Error func(err error)
 
 	// If Import != nil, it is called for each imported package.
@@ -115,22 +118,26 @@ type Config struct {
 // in a client of go/types will initialize DefaultImport to gcimporter.Import.
 var DefaultImport Importer
 
+type TypeAndValue struct {
+	Type  Type
+	Value exact.Value
+}
+
 // Info holds result type information for a type-checked package.
 // Only the information for which a map is provided is collected.
 // If the package has type errors, the collected information may
 // be incomplete.
 type Info struct {
-	// Types maps expressions to their types. Identifiers on the
-	// lhs of declarations are collected in Objects, not Types.
+	// Types maps expressions to their types, and for constant
+	// expressions, their values.
+	// Identifiers on the lhs of declarations are collected in
+	// Objects, not Types.
 	//
 	// For an expression denoting a predeclared built-in function
 	// the recorded signature is call-site specific. If the call
 	// result is not a constant, the recorded type is an argument-
 	// specific signature. Otherwise, the recorded type is invalid.
-	Types map[ast.Expr]Type
-
-	// Values maps constant expressions to their values.
-	Values map[ast.Expr]exact.Value
+	Types map[ast.Expr]TypeAndValue
 
 	// Objects maps identifiers to their corresponding objects (including
 	// package names, dots "." of dot-imports, and blank "_" identifiers).
@@ -212,32 +219,30 @@ func (init *Initializer) String() string {
 // file set, and the package path the package is identified with.
 // The clean path must not be empty or dot (".").
 func (conf *Config) Check(path string, fset *token.FileSet, files []*ast.File, info *Info) (*Package, error) {
-	pkg, err := conf.check(path, fset, files, info)
-	if err == nil {
-		pkg.complete = true
-	}
-	return pkg, err
+	pkg := NewPackage(path, "")
+	return pkg, newChecker(conf, fset, pkg, info).files(files)
 }
 
-// IsAssignableTo reports whether a value of type V is assignable to a variable of type T.
-func IsAssignableTo(V, T Type) bool {
+// AssertableTo reports whether a value of type V can be asserted to have type T.
+func AssertableTo(V *Interface, T Type) bool {
+	f, _ := MissingMethod(T, V, false)
+	return f == nil
+}
+
+// AssignableTo reports whether a value of type V is assignable to a variable of type T.
+func AssignableTo(V, T Type) bool {
 	x := operand{mode: value, typ: V}
-	return x.isAssignableTo(nil, T) // config not needed for non-constant x
+	return x.assignableTo(nil, T) // config not needed for non-constant x
 }
 
-// Implements reports whether a value of type V implements T, as follows:
-//
-// 1) For non-interface types V, or if static is set, V implements T if all
-// methods of T are present in V. Informally, this reports whether V is a
-// subtype of T.
-//
-// 2) For interface types V, and if static is not set, V implements T if all
-// methods of T which are also present in V have matching types. Informally,
-// this indicates whether a type assertion x.(T) where x is of type V would
-// be legal (the concrete dynamic type of x may implement T even if V does
-// not statically implement it).
-//
-func Implements(V Type, T *Interface, static bool) bool {
-	f, _ := MissingMethod(V, T, static)
+// ConvertibleTo reports whether a value of type V is convertible to a value of type T.
+func ConvertibleTo(V, T Type) bool {
+	x := operand{mode: value, typ: V}
+	return x.convertibleTo(nil, T) // config not needed for non-constant x
+}
+
+// Implements reports whether type V implements interface T.
+func Implements(V Type, T *Interface) bool {
+	f, _ := MissingMethod(V, T, true)
 	return f == nil
 }

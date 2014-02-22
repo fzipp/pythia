@@ -16,19 +16,20 @@ import (
 	"github.com/fzipp/pythia/third_party/go.tools/go/exact"
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
-	"github.com/fzipp/pythia/third_party/go.tools/go/types/typemap"
+	"github.com/fzipp/pythia/third_party/go.tools/go/types/typeutil"
 )
 
 // A Program is a partial or complete Go program converted to SSA form.
 //
 type Program struct {
-	Fset     *token.FileSet              // position information for the files of this Program
-	imported map[string]*Package         // all importable Packages, keyed by import path
-	packages map[*types.Package]*Package // all loaded Packages, keyed by object
-	mode     BuilderMode                 // set of mode bits for SSA construction
+	Fset       *token.FileSet              // position information for the files of this Program
+	imported   map[string]*Package         // all importable Packages, keyed by import path
+	packages   map[*types.Package]*Package // all loaded Packages, keyed by object
+	mode       BuilderMode                 // set of mode bits for SSA construction
+	MethodSets types.MethodSetCache        // cache of type-checker's method-sets
 
 	methodsMu           sync.Mutex                // guards the following maps:
-	methodSets          typemap.M                 // maps type to its concrete methodSet
+	methodSets          typeutil.Map              // maps type to its concrete methodSet
 	boundMethodWrappers map[*types.Func]*Function // wrappers for curried x.Method closures
 	ifaceMethodWrappers map[*types.Func]*Function // wrappers for curried I.Method functions
 }
@@ -52,7 +53,7 @@ type Package struct {
 	started  int32               // atomically tested and set at start of build phase
 	ninit    int32               // number of init functions
 	info     *loader.PackageInfo // package ASTs and type information
-	needRTTI typemap.M           // types for which runtime type info is needed
+	needRTTI typeutil.Map        // types for which runtime type info is needed
 }
 
 // A Member is a member of a Go package, implemented by *NamedConst,
@@ -612,8 +613,8 @@ type ChangeInterface struct {
 // MakeInterface constructs an instance of an interface type from a
 // value of a concrete type.
 //
-// Use X.Type().MethodSet() to find the method-set of X, and
-// Program.Method(m) to find the implementation of a method.
+// Use Program.MethodSets.MethodSet(X.Type()) to find the method-set
+// of X, and Program.Method(m) to find the implementation of a method.
 //
 // To construct the zero value of an interface type T, use:
 // 	NewConst(exact.MakeNil(), T, pos)
@@ -723,8 +724,8 @@ type MakeSlice struct {
 //
 type Slice struct {
 	register
-	X         Value // slice, string, or *array
-	Low, High Value // either may be nil
+	X              Value // slice, string, or *array
+	Low, High, Max Value // each may be nil
 }
 
 // The FieldAddr instruction yields the address of Field of *struct X.
@@ -1271,7 +1272,7 @@ type anInstruction struct {
 // 	go invoke t3.Run(t2)
 // 	defer invoke t4.Handle(...t5)
 //
-// For all calls to variadic functions (Signature().IsVariadic()),
+// For all calls to variadic functions (Signature().Variadic()),
 // the last element of Args is a slice.
 //
 type CallCommon struct {

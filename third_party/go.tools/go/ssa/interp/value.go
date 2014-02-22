@@ -44,7 +44,7 @@ import (
 
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
-	"github.com/fzipp/pythia/third_party/go.tools/go/types/typemap"
+	"github.com/fzipp/pythia/third_party/go.tools/go/types/typeutil"
 )
 
 type value interface{}
@@ -92,11 +92,11 @@ func hashString(s string) int {
 
 var (
 	mu     sync.Mutex
-	hasher = typemap.MakeHasher()
+	hasher = typeutil.MakeHasher()
 )
 
 // hashType returns a hash for t such that
-// types.IsIdentical(x, y) => hashType(x) == hashType(y).
+// types.Identical(x, y) => hashType(x) == hashType(y).
 func hashType(t types.Type) int {
 	mu.Lock()
 	h := int(hasher.Hash(t))
@@ -169,12 +169,12 @@ func (x structure) hash(t types.Type) int {
 	return h
 }
 
-// nil-tolerant variant of types.IsIdentical.
+// nil-tolerant variant of types.Identical.
 func sameType(x, y types.Type) bool {
 	if x == nil {
 		return y == nil
 	}
-	return y != nil && types.IsIdentical(x, y)
+	return y != nil && types.Identical(x, y)
 }
 
 func (x iface) eq(t types.Type, _y interface{}) bool {
@@ -191,7 +191,7 @@ func (x rtype) hash(_ types.Type) int {
 }
 
 func (x rtype) eq(_ types.Type, y interface{}) bool {
-	return types.IsIdentical(x.t, y.(rtype).t)
+	return types.Identical(x.t, y.(rtype).t)
 }
 
 // equals returns true iff x and y are equal according to Go's
@@ -352,109 +352,109 @@ func copyVal(v value) value {
 // Prints in the style of built-in println.
 // (More or less; in gc println is actually a compiler intrinsic and
 // can distinguish println(1) from println(interface{}(1)).)
-func toWriter(w io.Writer, v value) {
+func writeValue(buf *bytes.Buffer, v value) {
 	switch v := v.(type) {
 	case nil, bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, uintptr, float32, float64, complex64, complex128, string:
-		fmt.Fprintf(w, "%v", v)
+		fmt.Fprintf(buf, "%v", v)
 
 	case map[value]value:
-		io.WriteString(w, "map[")
+		buf.WriteString("map[")
 		sep := ""
 		for k, e := range v {
-			io.WriteString(w, sep)
+			buf.WriteString(sep)
 			sep = " "
-			toWriter(w, k)
-			io.WriteString(w, ":")
-			toWriter(w, e)
+			writeValue(buf, k)
+			buf.WriteString(":")
+			writeValue(buf, e)
 		}
-		io.WriteString(w, "]")
+		buf.WriteString("]")
 
 	case *hashmap:
-		io.WriteString(w, "map[")
+		buf.WriteString("map[")
 		sep := " "
 		for _, e := range v.table {
 			for e != nil {
-				io.WriteString(w, sep)
+				buf.WriteString(sep)
 				sep = " "
-				toWriter(w, e.key)
-				io.WriteString(w, ":")
-				toWriter(w, e.value)
+				writeValue(buf, e.key)
+				buf.WriteString(":")
+				writeValue(buf, e.value)
 				e = e.next
 			}
 		}
-		io.WriteString(w, "]")
+		buf.WriteString("]")
 
 	case chan value:
-		fmt.Fprintf(w, "%v", v) // (an address)
+		fmt.Fprintf(buf, "%v", v) // (an address)
 
 	case *value:
 		if v == nil {
-			io.WriteString(w, "<nil>")
+			buf.WriteString("<nil>")
 		} else {
-			fmt.Fprintf(w, "%p", v)
+			fmt.Fprintf(buf, "%p", v)
 		}
 
 	case iface:
-		fmt.Fprintf(w, "(%s, ", v.t)
-		toWriter(w, v.v)
-		io.WriteString(w, ")")
+		fmt.Fprintf(buf, "(%s, ", v.t)
+		writeValue(buf, v.v)
+		buf.WriteString(")")
 
 	case structure:
-		io.WriteString(w, "{")
+		buf.WriteString("{")
 		for i, e := range v {
 			if i > 0 {
-				io.WriteString(w, " ")
+				buf.WriteString(" ")
 			}
-			toWriter(w, e)
+			writeValue(buf, e)
 		}
-		io.WriteString(w, "}")
+		buf.WriteString("}")
 
 	case array:
-		io.WriteString(w, "[")
+		buf.WriteString("[")
 		for i, e := range v {
 			if i > 0 {
-				io.WriteString(w, " ")
+				buf.WriteString(" ")
 			}
-			toWriter(w, e)
+			writeValue(buf, e)
 		}
-		io.WriteString(w, "]")
+		buf.WriteString("]")
 
 	case []value:
-		io.WriteString(w, "[")
+		buf.WriteString("[")
 		for i, e := range v {
 			if i > 0 {
-				io.WriteString(w, " ")
+				buf.WriteString(" ")
 			}
-			toWriter(w, e)
+			writeValue(buf, e)
 		}
-		io.WriteString(w, "]")
+		buf.WriteString("]")
 
 	case *ssa.Function, *ssa.Builtin, *closure:
-		fmt.Fprintf(w, "%p", v) // (an address)
+		fmt.Fprintf(buf, "%p", v) // (an address)
 
 	case rtype:
-		io.WriteString(w, v.t.String())
+		buf.WriteString(v.t.String())
 
 	case tuple:
 		// Unreachable in well-formed Go programs
-		io.WriteString(w, "(")
+		buf.WriteString("(")
 		for i, e := range v {
 			if i > 0 {
-				io.WriteString(w, ", ")
+				buf.WriteString(", ")
 			}
-			toWriter(w, e)
+			writeValue(buf, e)
 		}
-		io.WriteString(w, ")")
+		buf.WriteString(")")
 
 	default:
-		fmt.Fprintf(w, "<%T>", v)
+		fmt.Fprintf(buf, "<%T>", v)
 	}
 }
 
 // Implements printing of Go values in the style of built-in println.
 func toString(v value) string {
 	var b bytes.Buffer
-	toWriter(&b, v)
+	writeValue(&b, v)
 	return b.String()
 }
 

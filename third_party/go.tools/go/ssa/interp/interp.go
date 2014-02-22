@@ -82,6 +82,7 @@ type interpreter struct {
 	errorMethods       methodSet            // the method set of reflect.error, which implements the error interface.
 	rtypeMethods       methodSet            // the method set of rtype, which implements the reflect.Type interface.
 	runtimeErrorString types.Type           // the runtime.errorString type
+	sizes              types.Sizes          // the effective type-sizing function
 }
 
 type deferred struct {
@@ -176,7 +177,7 @@ func lookupMethod(i *interpreter, typ types.Type, meth *types.Func) *ssa.Functio
 	case errorType:
 		return i.errorMethods[meth.Id()]
 	}
-	return i.prog.Method(typ.MethodSet().Lookup(meth.Pkg(), meth.Name()))
+	return i.prog.LookupMethod(typ, meth.Pkg(), meth.Name())
 }
 
 // visitInstr interprets a single ssa.Instruction within the activation
@@ -213,7 +214,7 @@ func visitInstr(fr *frame, instr ssa.Instruction) continuation {
 		fr.env[instr] = fr.get(instr.Tuple).(tuple)[instr.Index]
 
 	case *ssa.Slice:
-		fr.env[instr] = slice(fr.get(instr.X), fr.get(instr.Low), fr.get(instr.High))
+		fr.env[instr] = slice(fr.get(instr.X), fr.get(instr.Low), fr.get(instr.High), fr.get(instr.Max))
 
 	case *ssa.Return:
 		switch len(instr.Results) {
@@ -483,26 +484,26 @@ func callSSA(i *interpreter, caller *frame, callpos token.Pos, fn *ssa.Function,
 		}
 		defer fmt.Fprintf(os.Stderr, "Leaving %s%s.\n", fn, suffix)
 	}
+	fr := &frame{
+		i:      i,
+		caller: caller, // for panic/recover
+		fn:     fn,
+	}
 	if fn.Enclosing == nil {
 		name := fn.String()
 		if ext := externals[name]; ext != nil {
 			if i.mode&EnableTracing != 0 {
 				fmt.Fprintln(os.Stderr, "\t(external)")
 			}
-			return ext(fn, args)
+			return ext(fr, args)
 		}
 		if fn.Blocks == nil {
 			panic("no code for function: " + name)
 		}
 	}
-	fr := &frame{
-		i:      i,
-		caller: caller, // currently unused; for unwinding.
-		fn:     fn,
-		env:    make(map[ssa.Value]value),
-		block:  fn.Blocks[0],
-		locals: make([]value, len(fn.Locals)),
-	}
+	fr.env = make(map[ssa.Value]value)
+	fr.block = fn.Blocks[0]
+	fr.locals = make([]value, len(fn.Locals))
 	for i, l := range fn.Locals {
 		fr.locals[i] = zero(deref(l.Type()))
 		fr.env[l] = &fr.locals[i]
@@ -622,10 +623,6 @@ func setGlobal(i *interpreter, pkg *ssa.Package, name string, v value) {
 	panic("no global variable: " + pkg.Object.Path() + "." + name)
 }
 
-// _sizes is the effective type-sizing function.
-// TODO(adonovan): avoid global state.
-var _sizes types.Sizes
-
 // Interpret interprets the Go program whose main package is mainpkg.
 // mode specifies various interpreter options.  filename and args are
 // the initial values of os.Args for the target program.  sizes is the
@@ -637,11 +634,11 @@ var _sizes types.Sizes
 // The SSA program must include the "runtime" package.
 //
 func Interpret(mainpkg *ssa.Package, mode Mode, sizes types.Sizes, filename string, args []string) (exitCode int) {
-	_sizes = sizes
 	i := &interpreter{
 		prog:    mainpkg.Prog,
 		globals: make(map[ssa.Value]*value),
 		mode:    mode,
+		sizes:   sizes,
 	}
 	runtimePkg := i.prog.ImportedPackage("runtime")
 	if runtimePkg == nil {

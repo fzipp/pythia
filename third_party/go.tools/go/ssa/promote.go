@@ -43,6 +43,17 @@ func (prog *Program) Method(meth *types.Selection) *Function {
 	return prog.addMethod(prog.createMethodSet(T), meth)
 }
 
+// LookupMethod returns the implementation of the method of type T
+// identified by (pkg, name).  It panics if there is no such method.
+//
+func (prog *Program) LookupMethod(T types.Type, pkg *types.Package, name string) *Function {
+	sel := prog.MethodSets.MethodSet(T).Lookup(pkg, name)
+	if sel == nil {
+		panic(fmt.Sprintf("%s has no method %s", T, types.Id(pkg, name)))
+	}
+	return prog.Method(sel)
+}
+
 // makeMethods ensures that all wrappers in the complete method set of
 // T are generated.  It is equivalent to calling prog.Method() on all
 // members of T.methodSet(), but acquires fewer locks.
@@ -54,7 +65,7 @@ func (prog *Program) Method(meth *types.Selection) *Function {
 // EXCLUSIVE_LOCKS_ACQUIRED(prog.methodsMu)
 //
 func (prog *Program) makeMethods(T types.Type) bool {
-	tmset := T.MethodSet()
+	tmset := prog.MethodSets.MethodSet(T)
 	n := tmset.Len()
 	if n == 0 {
 		return false // empty (common case)
@@ -128,7 +139,7 @@ func (prog *Program) TypesWithMethodSets() []types.Type {
 	return res
 }
 
-// TypesWithMethodSets returns a new unordered slice containing the
+// TypesWithMethodSets returns an unordered slice containing the
 // set of all types referenced within package pkg and not belonging to
 // some other package, for which a complete (non-empty) method set is
 // required at run-time.
@@ -284,7 +295,7 @@ func createParams(fn *Function) {
 	for i, n := 0, tparams.Len(); i < n; i++ {
 		last = fn.addParamObj(tparams.At(i))
 	}
-	if fn.Signature.IsVariadic() {
+	if fn.Signature.Variadic() {
 		last.typ = types.NewSlice(last.typ)
 	}
 }
@@ -415,5 +426,5 @@ func boundMethodWrapper(prog *Program, obj *types.Func) *Function {
 }
 
 func changeRecv(s *types.Signature, recv *types.Var) *types.Signature {
-	return types.NewSignature(nil, recv, s.Params(), s.Results(), s.IsVariadic())
+	return types.NewSignature(nil, recv, s.Params(), s.Results(), s.Variadic())
 }

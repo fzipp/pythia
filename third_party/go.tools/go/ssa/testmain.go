@@ -25,13 +25,15 @@ import (
 // It returns nil if the program contains no tests.
 //
 func (prog *Program) CreateTestMainPackage(pkgs ...*Package) *Package {
+	if len(pkgs) == 0 {
+		return nil
+	}
 	testmain := &Package{
 		Prog:    prog,
 		Members: make(map[string]Member),
 		values:  make(map[types.Object]Value),
-		Object:  types.NewPackage("testmain", "testmain", nil),
+		Object:  types.NewPackage("testmain", "testmain"),
 	}
-	prog.packages[testmain.Object] = testmain
 
 	// Build package's init function.
 	init := &Function{
@@ -42,8 +44,12 @@ func (prog *Program) CreateTestMainPackage(pkgs ...*Package) *Package {
 		Prog:      prog,
 	}
 	init.startBody()
+	// TODO(adonovan): use lexical order.
 	var expfuncs []*Function // all exported functions of *_test.go in pkgs, unordered
 	for _, pkg := range pkgs {
+		if pkg.Prog != prog {
+			panic("wrong Program")
+		}
 		// Initialize package to test.
 		var v Call
 		v.Call.Value = pkg.init
@@ -62,6 +68,7 @@ func (prog *Program) CreateTestMainPackage(pkgs ...*Package) *Package {
 	init.emit(new(Return))
 	init.finishBody()
 	testmain.init = init
+	testmain.Object.MarkComplete()
 	testmain.Members[init.name] = init
 
 	testingPkg := prog.ImportedPackage("testing")
@@ -128,12 +135,14 @@ func (prog *Program) CreateTestMainPackage(pkgs ...*Package) *Package {
 	testmain.Members["main"] = main
 
 	if prog.mode&LogPackages != 0 {
-		testmain.DumpTo(os.Stderr)
+		testmain.WriteTo(os.Stderr)
 	}
 
 	if prog.mode&SanityCheckFunctions != 0 {
 		sanityCheckPackage(testmain)
 	}
+
+	prog.packages[testmain.Object] = testmain
 
 	return testmain
 }
@@ -150,7 +159,7 @@ func testMainSlice(fn *Function, expfuncs []*Function, prefix string, slice type
 
 	var testfuncs []*Function
 	for _, f := range expfuncs {
-		if isTest(f.Name(), prefix) && types.IsIdentical(f.Signature, tFunc) {
+		if isTest(f.Name(), prefix) && types.Identical(f.Signature, tFunc) {
 			testfuncs = append(testfuncs, f)
 		}
 	}

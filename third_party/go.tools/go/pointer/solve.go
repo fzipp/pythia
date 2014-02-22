@@ -268,7 +268,7 @@ func (c *typeFilterConstraint) solve(a *analysis, n *node, delta nodeset) {
 			panic("indirect tagged object")
 		}
 
-		if types.IsAssignableTo(tDyn, c.typ) {
+		if types.AssignableTo(tDyn, c.typ) {
 			if a.addLabel(c.dst, ifaceObj) {
 				a.addWork(c.dst)
 			}
@@ -277,9 +277,9 @@ func (c *typeFilterConstraint) solve(a *analysis, n *node, delta nodeset) {
 }
 
 func (c *untagConstraint) solve(a *analysis, n *node, delta nodeset) {
-	predicate := types.IsAssignableTo
+	predicate := types.AssignableTo
 	if c.exact {
-		predicate = types.IsIdentical
+		predicate = types.Identical
 	}
 	for ifaceObj := range delta {
 		tDyn, v, indirect := a.taggedValue(ifaceObj)
@@ -312,14 +312,9 @@ func (c *invokeConstraint) solve(a *analysis, n *node, delta nodeset) {
 		}
 
 		// Look up the concrete method.
-		meth := tDyn.MethodSet().Lookup(c.method.Pkg(), c.method.Name())
-		if meth == nil {
-			panic(fmt.Sprintf("n%d: type %s has no method %s (iface=n%d)",
-				c.iface, tDyn, c.method, ifaceObj))
-		}
-		fn := a.prog.Method(meth)
+		fn := a.prog.LookupMethod(tDyn, c.method.Pkg(), c.method.Name())
 		if fn == nil {
-			panic(fmt.Sprintf("n%d: no ssa.Function for %s", c.iface, meth))
+			panic(fmt.Sprintf("n%d: no ssa.Function for %s", c.iface, c.method))
 		}
 		sig := fn.Signature
 

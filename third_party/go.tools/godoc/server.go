@@ -6,6 +6,7 @@ package godoc
 
 import (
 	"bytes"
+	"expvar"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -96,7 +97,7 @@ func (h *handlerServer) GetPageInfo(abspath, relpath string, mode PageInfoMode) 
 	if len(pkgfiles) > 0 {
 		// build package AST
 		fset := token.NewFileSet()
-		files, err := h.c.parseFiles(fset, abspath, pkgfiles)
+		files, err := h.c.parseFiles(fset, relpath, abspath, pkgfiles)
 		if err != nil {
 			info.Err = err
 			return info
@@ -117,17 +118,23 @@ func (h *handlerServer) GetPageInfo(abspath, relpath string, mode PageInfoMode) 
 				m |= doc.AllMethods
 			}
 			info.PDoc = doc.New(pkg, pathpkg.Clean(relpath), m) // no trailing '/' in importpath
-			if mode&NoFactoryFuncs != 0 {
+			if mode&NoTypeAssoc != 0 {
 				for _, t := range info.PDoc.Types {
+					info.PDoc.Consts = append(info.PDoc.Consts, t.Consts...)
+					info.PDoc.Vars = append(info.PDoc.Vars, t.Vars...)
 					info.PDoc.Funcs = append(info.PDoc.Funcs, t.Funcs...)
+					t.Consts = nil
+					t.Vars = nil
 					t.Funcs = nil
 				}
+				// for now we cannot easily sort consts and vars since
+				// go/doc.Value doesn't export the order information
 				sort.Sort(funcsByName(info.PDoc.Funcs))
 			}
 
 			// collect examples
 			testfiles := append(pkginfo.TestGoFiles, pkginfo.XTestGoFiles...)
-			files, err = h.c.parseFiles(fset, abspath, testfiles)
+			files, err = h.c.parseFiles(fset, relpath, abspath, testfiles)
 			if err != nil {
 				log.Println("parsing examples:", err)
 			}
@@ -155,7 +162,7 @@ func (h *handlerServer) GetPageInfo(abspath, relpath string, mode PageInfoMode) 
 			if mode&NoFiltering == 0 {
 				packageExports(fset, pkg)
 			}
-			info.PAst = ast.MergePackageFiles(pkg, 0)
+			info.PAst = files
 		}
 		info.IsMain = pkgname == "main"
 	}
@@ -200,7 +207,7 @@ func (h *handlerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	abspath := pathpkg.Join(h.fsRoot, relpath)
 	mode := h.p.GetPageInfoMode(r)
 	if relpath == builtinPkgPath {
-		mode = NoFiltering | NoFactoryFuncs
+		mode = NoFiltering | NoTypeAssoc
 	}
 	info := h.GetPageInfo(abspath, relpath, mode)
 	if info.Err != nil {
@@ -217,7 +224,10 @@ func (h *handlerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var tabtitle, title, subtitle string
 	switch {
 	case info.PAst != nil:
-		tabtitle = info.PAst.Name.Name
+		for _, ast := range info.PAst {
+			tabtitle = ast.Name.Name
+			break
+		}
 	case info.PDoc != nil:
 		tabtitle = info.PDoc.Name
 	default:
@@ -257,12 +267,12 @@ func (h *handlerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type PageInfoMode uint
 
 const (
-	NoFiltering    PageInfoMode = 1 << iota // do not filter exports
-	AllMethods                              // show all embedded methods
-	ShowSource                              // show source code, do not extract documentation
-	NoHTML                                  // show result in textual form, do not generate HTML
-	FlatDir                                 // show directory in a flat (non-indented) manner
-	NoFactoryFuncs                          // don't associate factory functions with their result types
+	NoFiltering PageInfoMode = 1 << iota // do not filter exports
+	AllMethods                           // show all embedded methods
+	ShowSource                           // show source code, do not extract documentation
+	NoHTML                               // show result in textual form, do not generate HTML
+	FlatDir                              // show directory in a flat (non-indented) manner
+	NoTypeAssoc                          // don't associate consts, vars, and factory functions with types
 )
 
 // modeNames defines names for each PageInfoMode flag.
@@ -390,6 +400,45 @@ func applyTemplate(t *template.Template, name string, data interface{}) []byte {
 		log.Printf("%s.Execute: %s", name, err)
 	}
 	return buf.Bytes()
+}
+
+type writerCapturesErr struct {
+	w   io.Writer
+	err error
+}
+
+func (w *writerCapturesErr) Write(p []byte) (int, error) {
+	n, err := w.w.Write(p)
+	if err != nil {
+		w.err = err
+	}
+	return n, err
+}
+
+var httpErrors *expvar.Map
+
+func init() {
+	httpErrors = expvar.NewMap("httpWriteErrors").Init()
+}
+
+// applyTemplateToResponseWriter uses an http.ResponseWriter as the io.Writer
+// for the call to template.Execute.  It uses an io.Writer wrapper to capture
+// errors from the underlying http.ResponseWriter.  If an error is found, an
+// expvar will be incremented.  Other template errors will be logged.  This is
+// done to keep from polluting log files with error messages due to networking
+// issues, such as client disconnects and http HEAD protocol violations.
+func applyTemplateToResponseWriter(rw http.ResponseWriter, t *template.Template, data interface{}) {
+	w := &writerCapturesErr{w: rw}
+	err := t.Execute(w, data)
+	// There are some cases where template.Execute does not return an error when
+	// rw returns an error, and some where it does.  So check w.err first.
+	if w.err != nil {
+		// For http errors, increment an expvar.
+		httpErrors.Add(w.err.Error(), 1)
+	} else if err != nil {
+		// Log template errors.
+		log.Printf("%s.Execute: %s", t.Name(), err)
+	}
 }
 
 func redirect(w http.ResponseWriter, r *http.Request) (redirected bool) {

@@ -4,27 +4,17 @@
 
 package callgraph
 
-// This file provides various representation-independent utilities
-// over call graphs, such as visitation and path search.
-//
-// TODO(adonovan):
-//
-// Consider adding lookup functions such as:
-//   FindSitesByPos(g Graph, lparen token.Pos) []Site
-//   FindSitesByCallExpr(g Graph, expr *ast.CallExpr) []Site
-//   FindSitesByInstr(g Graph, instr ssa.CallInstruction) []Site
-//   FindNodesByFunc(g Graph, fn *ssa.Function) []Node
-//   (Counterargument: they're all inefficient linear scans; if the
-//   caller does it explicitly there may be opportunities to optimize.
-//
-// Add a utility function to eliminate all context from a call graph.
+import "github.com/fzipp/pythia/third_party/go.tools/go/ssa"
+
+// This file provides various utilities over call graphs, such as
+// visitation and path search.
 
 // CalleesOf returns a new set containing all direct callees of the
 // caller node.
 //
-func CalleesOf(caller Node) map[Node]bool {
-	callees := make(map[Node]bool)
-	for _, e := range caller.Edges() {
+func CalleesOf(caller *Node) map[*Node]bool {
+	callees := make(map[*Node]bool)
+	for _, e := range caller.Out {
 		callees[e.Callee] = true
 	}
 	return callees
@@ -35,13 +25,13 @@ func CalleesOf(caller Node) map[Node]bool {
 // returns non-nil, visitation stops and GraphVisitEdges returns that
 // value.
 //
-func GraphVisitEdges(g Graph, edge func(Edge) error) error {
-	seen := make(map[Node]bool)
-	var visit func(n Node) error
-	visit = func(n Node) error {
+func GraphVisitEdges(g *Graph, edge func(*Edge) error) error {
+	seen := make(map[*Node]bool)
+	var visit func(n *Node) error
+	visit = func(n *Node) error {
 		if !seen[n] {
 			seen[n] = true
-			for _, e := range n.Edges() {
+			for _, e := range n.Out {
 				if err := visit(e.Callee); err != nil {
 					return err
 				}
@@ -52,7 +42,7 @@ func GraphVisitEdges(g Graph, edge func(Edge) error) error {
 		}
 		return nil
 	}
-	for _, n := range g.Nodes() {
+	for _, n := range g.Nodes {
 		if err := visit(n); err != nil {
 			return err
 		}
@@ -65,17 +55,17 @@ func GraphVisitEdges(g Graph, edge func(Edge) error) error {
 // PathSearch returns the path as an ordered list of edges; on
 // failure, it returns nil.
 //
-func PathSearch(start Node, isEnd func(Node) bool) []Edge {
-	stack := make([]Edge, 0, 32)
-	seen := make(map[Node]bool)
-	var search func(n Node) []Edge
-	search = func(n Node) []Edge {
+func PathSearch(start *Node, isEnd func(*Node) bool) []*Edge {
+	stack := make([]*Edge, 0, 32)
+	seen := make(map[*Node]bool)
+	var search func(n *Node) []*Edge
+	search = func(n *Node) []*Edge {
 		if !seen[n] {
 			seen[n] = true
 			if isEnd(n) {
 				return stack
 			}
-			for _, e := range n.Edges() {
+			for _, e := range n.Out {
 				stack = append(stack, e) // push
 				if found := search(e.Callee); found != nil {
 					return found
@@ -86,4 +76,81 @@ func PathSearch(start Node, isEnd func(Node) bool) []Edge {
 		return nil
 	}
 	return search(start)
+}
+
+// DeleteSyntheticNodes removes from call graph g all nodes for
+// synthetic functions (except g.Root and package initializers),
+// preserving the topology.
+func (g *Graph) DeleteSyntheticNodes() {
+	for fn, cgn := range g.Nodes {
+		if cgn == g.Root || fn.Synthetic == "" || isInit(cgn.Func) {
+			continue // keep
+		}
+		for _, eIn := range cgn.In {
+			for _, eOut := range cgn.Out {
+				AddEdge(eIn.Caller, eIn.Site, eOut.Callee)
+			}
+		}
+		g.DeleteNode(cgn)
+	}
+}
+
+func isInit(fn *ssa.Function) bool {
+	return fn.Pkg != nil && fn.Pkg.Func("init") == fn
+}
+
+// DeleteNode removes node n and its edges from the graph g.
+// (NB: not efficient for batch deletion.)
+func (g *Graph) DeleteNode(n *Node) {
+	n.deleteIns()
+	n.deleteOuts()
+	delete(g.Nodes, n.Func)
+}
+
+// deleteIns deletes all incoming edges to n.
+func (n *Node) deleteIns() {
+	for _, e := range n.In {
+		removeOutEdge(e)
+	}
+	n.In = nil
+}
+
+// deleteOuts deletes all outgoing edges from n.
+func (n *Node) deleteOuts() {
+	for _, e := range n.Out {
+		removeInEdge(e)
+	}
+	n.Out = nil
+}
+
+// removeOutEdge removes edge.Caller's outgoing edge 'edge'.
+func removeOutEdge(edge *Edge) {
+	caller := edge.Caller
+	n := len(caller.Out)
+	for i, e := range caller.Out {
+		if e == edge {
+			// Replace it with the final element and shrink the slice.
+			caller.Out[i] = caller.Out[n-1]
+			caller.Out[n-1] = nil // aid GC
+			caller.Out = caller.Out[:n-1]
+			return
+		}
+	}
+	panic("edge not found: " + edge.String())
+}
+
+// removeInEdge removes edge.Callee's incoming edge 'edge'.
+func removeInEdge(edge *Edge) {
+	caller := edge.Callee
+	n := len(caller.In)
+	for i, e := range caller.In {
+		if e == edge {
+			// Replace it with the final element and shrink the slice.
+			caller.In[i] = caller.In[n-1]
+			caller.In[n-1] = nil // aid GC
+			caller.In = caller.In[:n-1]
+			return
+		}
+	}
+	panic("edge not found: " + edge.String())
 }

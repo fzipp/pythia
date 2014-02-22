@@ -17,26 +17,6 @@ import (
 	"github.com/fzipp/pythia/third_party/go.tools/go/exact"
 )
 
-func (check *checker) reportAltDecl(obj Object) {
-	if pos := obj.Pos(); pos.IsValid() {
-		// We use "other" rather than "previous" here because
-		// the first declaration seen may not be textually
-		// earlier in the source.
-		check.errorf(pos, "\tother declaration of %s", obj.Name()) // secondary error, \t indented
-	}
-}
-
-func (check *checker) declare(scope *Scope, id *ast.Ident, obj Object) {
-	if alt := scope.Insert(obj); alt != nil {
-		check.errorf(obj.Pos(), "%s redeclared in this block", obj.Name())
-		check.reportAltDecl(alt)
-		return
-	}
-	if id != nil {
-		check.recordObject(id, obj)
-	}
-}
-
 // A declInfo describes a package-level const, type, var, or func declaration.
 type declInfo struct {
 	file  *Scope        // scope of file containing this declaration
@@ -47,13 +27,6 @@ type declInfo struct {
 
 	deps map[Object]*declInfo // init dependencies; lazily allocated
 	mark int                  // see check.dependencies
-}
-
-type funcInfo struct {
-	name string    // for tracing only
-	info *declInfo // for cycle detection
-	sig  *Signature
-	body *ast.BlockStmt
 }
 
 // arityMatch checks that the lhs and rhs of a const or var decl
@@ -116,7 +89,7 @@ func (check *checker) resolveFiles(files []*ast.File) {
 
 	var (
 		objMap  = make(map[Object]*declInfo) // corresponding declaration info
-		initMap = make(map[Object]*declInfo) // declaration info for variables with initializers
+		initMap = make(map[Object]*declInfo) // declaration info for objects with initializers
 	)
 
 	// declare declares obj in the package scope, records its ident -> obj mapping,
@@ -178,7 +151,7 @@ func (check *checker) resolveFiles(files []*ast.File) {
 						}
 						if path == "C" && check.conf.FakeImportC {
 							// TODO(gri) shouldn't create a new one each time
-							imp = NewPackage("C", "C", NewScope(nil))
+							imp = NewPackage("C", "C")
 							imp.fake = true
 						} else {
 							var err error
@@ -226,7 +199,7 @@ func (check *checker) resolveFiles(files []*ast.File) {
 							for _, obj := range imp.scope.elems {
 								// A package scope may contain non-exported objects,
 								// do not import them!
-								if obj.IsExported() {
+								if obj.Exported() {
 									// Note: This will change each imported object's scope!
 									//       May be an issue for type aliases.
 									check.declare(fileScope, nil, obj)
@@ -266,7 +239,11 @@ func (check *checker) resolveFiles(files []*ast.File) {
 									init = last.Values[i]
 								}
 
-								declare(name, obj, &declInfo{file: fileScope, typ: last.Type, init: init})
+								d := &declInfo{file: fileScope, typ: last.Type, init: init}
+								declare(name, obj, d)
+
+								// all constants have an initializer
+								initMap[obj] = d
 							}
 
 							check.arityMatch(s, last)
@@ -302,7 +279,7 @@ func (check *checker) resolveFiles(files []*ast.File) {
 
 								declare(name, obj, d)
 
-								// remember obj if it has an initializer
+								// remember variable if it has an initializer
 								if d1 != nil || init != nil {
 									initMap[obj] = d
 								}
@@ -351,13 +328,13 @@ func (check *checker) resolveFiles(files []*ast.File) {
 							typ = ptr.X
 						}
 						if base, _ := typ.(*ast.Ident); base != nil && base.Name != "_" {
-							check.methods[base.Name] = append(check.methods[base.Name], obj)
+							check.assocMethod(base.Name, obj)
 						}
 					}
 				}
 				info := &declInfo{file: fileScope, fdecl: d}
 				objMap[obj] = info
-				// remember obj if it has a body (= initializer)
+				// remember function if it has a body (= initializer)
 				if d.Body != nil {
 					initMap[obj] = info
 				}
@@ -381,13 +358,13 @@ func (check *checker) resolveFiles(files []*ast.File) {
 
 	// Phase 3: Typecheck all objects in objMap, but not function bodies.
 
-	check.objMap = objMap // indicate that we are checking package-level declarations (objects may not have a type yet)
 	check.initMap = initMap
+	check.objMap = objMap               // indicate that we are checking package-level declarations (objects may not have a type yet)
+	typePath := make([]*TypeName, 0, 8) // pre-allocate space for type declaration paths so that the underlying array is reused
 	for _, obj := range objectsOf(check.objMap) {
-		if obj.Type() == nil {
-			check.objDecl(obj, nil, false)
-		}
+		check.objDecl(obj, nil, typePath)
 	}
+	check.objMap = nil // not needed anymore
 
 	// At this point we may have a non-empty check.methods map; this means that not all
 	// entries were deleted at the end of typeDecl because the respective receiver base
@@ -397,20 +374,20 @@ func (check *checker) resolveFiles(files []*ast.File) {
 
 	// Phase 4: Typecheck all functions bodies.
 
-	for _, f := range check.funcList {
-		check.decl = f.info
-		check.funcBody(f.name, f.sig, f.body)
+	for _, f := range check.funcs {
+		check.funcBody(f.decl, f.name, f.sig, f.body)
 	}
 
 	// Phase 5: Check initialization dependencies.
 	// Note: must happen after checking all functions because function bodies
 	// may introduce dependencies
 
+	initPath := make([]Object, 0, 8) // pre-allocate space for initialization paths so that the underlying array is reused
 	for _, obj := range objectsOf(initMap) {
-		if obj, _ := obj.(*Var); obj != nil {
+		switch obj.(type) {
+		case *Const, *Var:
 			if init := initMap[obj]; init != nil {
-				// provide non-nil path for re-use of underlying array
-				check.dependencies(obj, init, make([]Object, 0, 8))
+				check.dependencies(obj, init, initPath)
 			}
 		}
 	}
@@ -514,16 +491,18 @@ func (check *checker) dependencies(obj Object, init *declInfo, path []Object) {
 	}
 
 	if init.mark > 0 {
-		// cycle detected - find index of first variable in cycle, if any
+		// cycle detected - find index of first constant or variable in cycle, if any
 		first := -1
 		cycle := path[init.mark-1:]
+	L:
 		for i, obj := range cycle {
-			if _, ok := obj.(*Var); ok {
+			switch obj.(type) {
+			case *Const, *Var:
 				first = i
-				break
+				break L
 			}
 		}
-		// only report an error if there's at least one variable
+		// only report an error if there's at least one constant or variable
 		if first >= 0 {
 			obj := cycle[first]
 			check.errorf(obj.Pos(), "initialization cycle for %s", obj.Name())
@@ -537,7 +516,7 @@ func (check *checker) dependencies(obj Object, init *declInfo, path []Object) {
 				}
 				obj = cycle[i]
 			}
-			check.errorf(obj.Pos(), "\t%s (cycle start)", obj.Name())
+			check.errorf(obj.Pos(), "\t%s", obj.Name())
 
 		}
 		init.mark = -1 // avoid further errors
@@ -554,342 +533,12 @@ func (check *checker) dependencies(obj Object, init *declInfo, path []Object) {
 	}
 	init.mark = -1 // init.mark < 0
 
-	// record the init order for variables
+	// record the init order for variables only
 	if this, _ := obj.(*Var); this != nil {
 		initLhs := init.lhs // possibly nil (see declInfo.lhs field comment)
 		if initLhs == nil {
 			initLhs = []*Var{this}
 		}
 		check.Info.InitOrder = append(check.Info.InitOrder, &Initializer{initLhs, init.init})
-	}
-}
-
-// objDecl type-checks the declaration of obj in its respective file scope.
-// See typeDecl for the details on def and cycleOk.
-func (check *checker) objDecl(obj Object, def *Named, cycleOk bool) {
-	d := check.objMap[obj]
-
-	// adjust file scope for current object
-	oldScope := check.topScope
-	check.topScope = d.file // for lookup
-
-	// save current iota
-	oldIota := check.iota
-	check.iota = nil
-
-	// save current decl
-	oldDecl := check.decl
-	check.decl = nil
-
-	switch obj := obj.(type) {
-	case *Const:
-		check.constDecl(obj, d.typ, d.init)
-	case *Var:
-		check.decl = d // new package-level var decl
-		check.varDecl(obj, d.lhs, d.typ, d.init)
-	case *TypeName:
-		check.typeDecl(obj, d.typ, def, cycleOk)
-	case *Func:
-		check.funcDecl(obj, d)
-	default:
-		unreachable()
-	}
-
-	check.decl = oldDecl
-	check.iota = oldIota
-	check.topScope = oldScope
-}
-
-func (check *checker) constDecl(obj *Const, typ, init ast.Expr) {
-	if obj.visited {
-		check.errorf(obj.Pos(), "illegal cycle in initialization of constant %s", obj.name)
-		obj.typ = Typ[Invalid]
-		return
-	}
-	obj.visited = true
-
-	// use the correct value of iota
-	assert(check.iota == nil)
-	check.iota = obj.val
-
-	// determine type, if any
-	if typ != nil {
-		t := check.typ(typ, nil, false)
-		if !isConstType(t) {
-			check.errorf(typ.Pos(), "invalid constant type %s", t)
-			obj.typ = Typ[Invalid]
-			check.iota = nil
-			return
-		}
-		obj.typ = t
-	}
-
-	// check initialization
-	var x operand
-	if init != nil {
-		check.expr(&x, init)
-	}
-	check.initConst(obj, &x)
-
-	check.iota = nil
-}
-
-// TODO(gri) document arguments
-func (check *checker) varDecl(obj *Var, lhs []*Var, typ, init ast.Expr) {
-	if obj.visited {
-		check.errorf(obj.Pos(), "illegal cycle in initialization of variable %s", obj.name)
-		obj.typ = Typ[Invalid]
-		return
-	}
-	obj.visited = true
-
-	// var declarations cannot use iota
-	assert(check.iota == nil)
-
-	// determine type, if any
-	if typ != nil {
-		obj.typ = check.typ(typ, nil, false)
-	}
-
-	// check initialization
-	if init == nil {
-		if typ == nil {
-			// error reported before by arityMatch
-			obj.typ = Typ[Invalid]
-		}
-		return
-	}
-
-	if lhs == nil || len(lhs) == 1 {
-		assert(lhs == nil || lhs[0] == obj)
-		var x operand
-		check.expr(&x, init)
-		check.initVar(obj, &x)
-		return
-	}
-
-	if debug {
-		// obj must be one of lhs
-		found := false
-		for _, lhs := range lhs {
-			if obj == lhs {
-				found = true
-				break
-			}
-		}
-		if !found {
-			panic("inconsistent lhs")
-		}
-	}
-	check.initVars(lhs, []ast.Expr{init}, token.NoPos)
-}
-
-func (check *checker) typeDecl(obj *TypeName, typ ast.Expr, def *Named, cycleOk bool) {
-	assert(obj.Type() == nil)
-
-	// type declarations cannot use iota
-	assert(check.iota == nil)
-
-	named := &Named{obj: obj}
-	obj.typ = named // make sure recursive type declarations terminate
-
-	// If this type (named) defines the type of another (def) type declaration,
-	// set def's underlying type to this type so that we can resolve the true
-	// underlying of def later.
-	if def != nil {
-		def.underlying = named
-	}
-
-	// Typecheck typ - it may be a named type that is not yet complete.
-	// For instance, consider:
-	//
-	//	type (
-	//		A B
-	//		B *C
-	//		C A
-	//	)
-	//
-	// When we declare object C, typ is the identifier A which is incomplete.
-	u := check.typ(typ, named, cycleOk)
-
-	// Determine the unnamed underlying type.
-	// In the above example, the underlying type of A was (temporarily) set
-	// to B whose underlying type was set to *C. Such "forward chains" always
-	// end in an unnamed type (cycles are terminated with an invalid type).
-	for {
-		n, _ := u.(*Named)
-		if n == nil {
-			break
-		}
-		u = n.underlying
-	}
-	named.underlying = u
-
-	// the underlying type has been determined
-	named.complete = true
-
-	// type-check signatures of associated methods
-	methods := check.methods[obj.name]
-	if len(methods) == 0 {
-		return // no methods
-	}
-
-	// spec: "For a base type, the non-blank names of methods bound
-	// to it must be unique."
-	// => use an objset to determine redeclarations
-	var mset objset
-
-	// spec: "If the base type is a struct type, the non-blank method
-	// and field names must be distinct."
-	// => pre-populate the objset to find conflicts
-	// TODO(gri) consider keeping the objset with the struct instead
-	if t, _ := named.underlying.(*Struct); t != nil {
-		for _, fld := range t.fields {
-			if fld.name != "_" {
-				assert(mset.insert(fld) == nil)
-			}
-		}
-	}
-
-	// check each method
-	for _, m := range methods {
-		if m.name != "_" {
-			if alt := mset.insert(m); alt != nil {
-				switch alt.(type) {
-				case *Var:
-					check.errorf(m.pos, "field and method with the same name %s", m.name)
-				case *Func:
-					check.errorf(m.pos, "method %s already declared for %s", m.name, named)
-				default:
-					unreachable()
-				}
-				check.reportAltDecl(alt)
-				continue
-			}
-		}
-		check.recordObject(check.objMap[m].fdecl.Name, m)
-		check.objDecl(m, nil, true)
-		// Methods with blank _ names cannot be found.
-		// Don't add them to the method list.
-		if m.name != "_" {
-			named.methods = append(named.methods, m)
-		}
-	}
-
-	delete(check.methods, obj.name) // we don't need them anymore
-}
-
-func (check *checker) funcDecl(obj *Func, info *declInfo) {
-	// func declarations cannot use iota
-	assert(check.iota == nil)
-
-	obj.typ = Typ[Invalid] // guard against cycles
-	fdecl := info.fdecl
-	sig := check.funcType(fdecl.Recv, fdecl.Type, nil)
-	if sig.recv == nil && obj.name == "init" && (sig.params.Len() > 0 || sig.results.Len() > 0) {
-		check.errorf(fdecl.Pos(), "func init must have no arguments and no return values")
-		// ok to continue
-	}
-	obj.typ = sig
-
-	// function body must be type-checked after global declarations
-	// (functions implemented elsewhere have no body)
-	if !check.conf.IgnoreFuncBodies && fdecl.Body != nil {
-		check.funcList = append(check.funcList, funcInfo{obj.name, info, sig, fdecl.Body})
-	}
-}
-
-func (check *checker) declStmt(decl ast.Decl) {
-	pkg := check.pkg
-
-	switch d := decl.(type) {
-	case *ast.BadDecl:
-		// ignore
-
-	case *ast.GenDecl:
-		var last *ast.ValueSpec // last ValueSpec with type or init exprs seen
-		for iota, spec := range d.Specs {
-			switch s := spec.(type) {
-			case *ast.ValueSpec:
-				switch d.Tok {
-				case token.CONST:
-					// determine which init exprs to use
-					switch {
-					case s.Type != nil || len(s.Values) > 0:
-						last = s
-					case last == nil:
-						last = new(ast.ValueSpec) // make sure last exists
-					}
-
-					// declare all constants
-					lhs := make([]*Const, len(s.Names))
-					for i, name := range s.Names {
-						obj := NewConst(name.Pos(), pkg, name.Name, nil, exact.MakeInt64(int64(iota)))
-						lhs[i] = obj
-
-						var init ast.Expr
-						if i < len(last.Values) {
-							init = last.Values[i]
-						}
-
-						check.constDecl(obj, last.Type, init)
-					}
-
-					check.arityMatch(s, last)
-
-					for i, name := range s.Names {
-						check.declare(check.topScope, name, lhs[i])
-					}
-
-				case token.VAR:
-					lhs0 := make([]*Var, len(s.Names))
-					for i, name := range s.Names {
-						lhs0[i] = NewVar(name.Pos(), pkg, name.Name, nil)
-					}
-
-					// initialize all variables
-					for i, obj := range lhs0 {
-						var lhs []*Var
-						var init ast.Expr
-						switch len(s.Values) {
-						case len(s.Names):
-							// lhs and rhs match
-							init = s.Values[i]
-						case 1:
-							// rhs is expected to be a multi-valued expression
-							lhs = lhs0
-							init = s.Values[0]
-						default:
-							if i < len(s.Values) {
-								init = s.Values[i]
-							}
-						}
-						check.varDecl(obj, lhs, s.Type, init)
-					}
-
-					check.arityMatch(s, nil)
-
-					// declare all variables
-					// (only at this point are the variable scopes (parents) set)
-					for i, name := range s.Names {
-						check.declare(check.topScope, name, lhs0[i])
-					}
-
-				default:
-					check.invalidAST(s.Pos(), "invalid token %s", d.Tok)
-				}
-
-			case *ast.TypeSpec:
-				obj := NewTypeName(s.Name.Pos(), pkg, s.Name.Name, nil)
-				check.declare(check.topScope, s.Name, obj)
-				check.typeDecl(obj, s.Type, nil, false)
-
-			default:
-				check.invalidAST(s.Pos(), "const, type, or var declaration expected")
-			}
-		}
-
-	default:
-		check.invalidAST(d.Pos(), "unknown ast.Decl node %T", d)
 	}
 }

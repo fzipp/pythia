@@ -17,8 +17,8 @@ var (
 	Universe     *Scope
 	Unsafe       *Package
 	universeIota *Const
-	universeByte *Basic
-	universeRune *Basic
+	UniverseByte *Basic // uint8 alias, but has name "byte"
+	UniverseRune *Basic // int32 alias, but has name "rune"
 )
 
 var Typ = [...]*Basic{
@@ -69,7 +69,7 @@ func defPredeclaredTypes() {
 	res := NewVar(token.NoPos, nil, "", Typ[String])
 	sig := &Signature{results: NewTuple(res)}
 	err := NewFunc(token.NoPos, nil, "Error", sig)
-	typ := &Named{underlying: NewInterface([]*Func{err}, nil), complete: true}
+	typ := &Named{underlying: NewInterface([]*Func{err}, nil)}
 	sig.recv = NewVar(token.NoPos, nil, "", typ)
 	def(NewTypeName(token.NoPos, nil, "error", typ))
 }
@@ -178,7 +178,7 @@ func DefPredeclaredTestFuncs() {
 
 func init() {
 	Universe = NewScope(nil)
-	Unsafe = NewPackage("unsafe", "unsafe", NewScope(Universe))
+	Unsafe = NewPackage("unsafe", "unsafe")
 	Unsafe.complete = true
 
 	defPredeclaredTypes()
@@ -187,8 +187,8 @@ func init() {
 	defPredeclaredFuncs()
 
 	universeIota = Universe.Lookup("iota").(*Const)
-	universeByte = Universe.Lookup("byte").(*TypeName).typ.(*Basic)
-	universeRune = Universe.Lookup("rune").(*TypeName).typ.(*Basic)
+	UniverseByte = Universe.Lookup("byte").(*TypeName).typ.(*Basic)
+	UniverseRune = Universe.Lookup("rune").(*TypeName).typ.(*Basic)
 }
 
 // Objects with names containing blanks are internal and not entered into
@@ -206,7 +206,7 @@ func def(obj Object) {
 	}
 	// exported identifiers go into package unsafe
 	scope := Universe
-	if obj.IsExported() {
+	if obj.Exported() {
 		scope = Unsafe.scope
 		// set Pkg field
 		switch obj := obj.(type) {

@@ -1201,7 +1201,7 @@ func (x *Index) lookupWord(w string) (match *LookupResult, alt *AltWords) {
 // isIdentifier reports whether s is a Go identifier.
 func isIdentifier(s string) bool {
 	for i, ch := range s {
-		if unicode.IsLetter(ch) || ch == ' ' || i > 0 && unicode.IsDigit(ch) {
+		if unicode.IsLetter(ch) || ch == '_' || i > 0 && unicode.IsDigit(ch) {
 			continue
 		}
 		return false
@@ -1483,12 +1483,11 @@ func (c *Corpus) RunIndexer() {
 		}
 	}
 
-	// repeatedly update the index when it goes out of date
+	// Repeatedly update the package directory tree and index.
+	// TODO(bgarcia): Use fsnotify to only update when notified of a filesystem change.
 	for {
-		if !c.indexUpToDate() {
-			// index possibly out of date - make a new one
-			c.UpdateIndex()
-		}
+		c.initFSTree()
+		c.UpdateIndex()
 		if c.IndexInterval < 0 {
 			return
 		}

@@ -53,8 +53,7 @@ constant lhs must be representable as an integer.
 
 When an expression gets its final type, either on the way out from rawExpr,
 on the way down in updateExprType, or at the end of the type checker run,
-the type (and constant value, if any) is recorded via Info.Types and Values,
-if present.
+the type (and constant value, if any) is recorded via Info.Types, if present.
 */
 
 type opPredicates map[token.Token]func(Type) bool
@@ -127,7 +126,7 @@ func (check *checker) unary(x *operand, op token.Token) {
 		// Typed constants must be representable in
 		// their type after each constant operation.
 		if isTyped(typ) {
-			check.isRepresentableAs(x, typ)
+			check.representable(x, typ)
 		}
 		return
 	}
@@ -184,14 +183,14 @@ func roundFloat64(x exact.Value) exact.Value {
 	return nil
 }
 
-// isRepresentableConst reports whether x can be represented as
+// representableConst reports whether x can be represented as
 // value of the given basic type kind and for the configuration
 // provided (only needed for int/uint sizes).
 //
 // If rounded != nil, *rounded is set to the rounded value of x for
 // representable floating-point values; it is left alone otherwise.
 // It is ok to provide the addressof the first argument for rounded.
-func isRepresentableConst(x exact.Value, conf *Config, as BasicKind, rounded *exact.Value) bool {
+func representableConst(x exact.Value, conf *Config, as BasicKind, rounded *exact.Value) bool {
 	switch x.Kind() {
 	case exact.Unknown:
 		return true
@@ -327,10 +326,10 @@ func isRepresentableConst(x exact.Value, conf *Config, as BasicKind, rounded *ex
 	return false
 }
 
-// isRepresentableAs checks that a constant operand is representable in the given basic type.
-func (check *checker) isRepresentableAs(x *operand, typ *Basic) {
+// representable checks that a constant operand is representable in the given basic type.
+func (check *checker) representable(x *operand, typ *Basic) {
 	assert(x.mode == constant)
-	if !isRepresentableConst(x.val, check.conf, typ.kind, &x.val) {
+	if !representableConst(x.val, check.conf, typ.kind, &x.val) {
 		var msg string
 		if isNumeric(x.typ) && isNumeric(typ) {
 			// numeric conversion : error msg
@@ -490,7 +489,7 @@ func (check *checker) convertUntyped(x *operand, target Type) {
 	switch t := target.Underlying().(type) {
 	case *Basic:
 		if x.mode == constant {
-			check.isRepresentableAs(x, t)
+			check.representable(x, t)
 			if x.mode == invalid {
 				return
 			}
@@ -563,12 +562,12 @@ func (check *checker) comparison(x, y *operand, op token.Token) {
 	// spec: "In any comparison, the first operand must be assignable
 	// to the type of the second operand, or vice versa."
 	err := ""
-	if x.isAssignableTo(check.conf, y.typ) || y.isAssignableTo(check.conf, x.typ) {
+	if x.assignableTo(check.conf, y.typ) || y.assignableTo(check.conf, x.typ) {
 		defined := false
 		switch op {
 		case token.EQL, token.NEQ:
 			// spec: "The equality operators == and != apply to operands that are comparable."
-			defined = isComparable(x.typ) || x.isNil() && hasNil(y.typ) || y.isNil() && hasNil(x.typ)
+			defined = Comparable(x.typ) || x.isNil() && hasNil(y.typ) || y.isNil() && hasNil(x.typ)
 		case token.LSS, token.LEQ, token.GTR, token.GEQ:
 			// spec: The ordering operators <, <=, >, and >= apply to operands that are ordered."
 			defined = isOrdered(x.typ)
@@ -616,7 +615,7 @@ func (check *checker) shift(x, y *operand, op token.Token) {
 
 	// The lhs must be of integer type or be representable
 	// as an integer; otherwise the shift has no chance.
-	if !isInteger(x.typ) && (!untypedx || !isRepresentableConst(x.val, nil, UntypedInt, nil)) {
+	if !isInteger(x.typ) && (!untypedx || !representableConst(x.val, nil, UntypedInt, nil)) {
 		check.invalidOp(x.pos(), "shifted operand %s must be integer", x)
 		x.mode = invalid
 		return
@@ -747,7 +746,7 @@ func (check *checker) binary(x *operand, lhs, rhs ast.Expr, op token.Token) {
 		return
 	}
 
-	if !IsIdentical(x.typ, y.typ) {
+	if !Identical(x.typ, y.typ) {
 		// only report an error if we have valid types
 		// (otherwise we had an error reported elsewhere already)
 		if x.typ != Typ[Invalid] && y.typ != Typ[Invalid] {
@@ -778,7 +777,7 @@ func (check *checker) binary(x *operand, lhs, rhs ast.Expr, op token.Token) {
 		// Typed constants must be representable in
 		// their type after each constant operation.
 		if isTyped(typ) {
-			check.isRepresentableAs(x, typ)
+			check.representable(x, typ)
 		}
 		return
 	}
@@ -920,9 +919,9 @@ func (check *checker) rawExpr(x *operand, e ast.Expr, hint Type) exprKind {
 	assert(x.expr != nil && typ != nil)
 
 	if isUntyped(typ) {
-		// delay notification until it becomes typed
+		// delay type and value recording until we know the type
 		// or until the end of type checking
-		check.untyped[x.expr] = exprInfo{false, typ.(*Basic), val}
+		check.rememberUntyped(x.expr, false, typ.(*Basic), val)
 	} else {
 		check.recordTypeAndValue(e, typ, val)
 	}
@@ -944,7 +943,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 		goto Error // error was reported before
 
 	case *ast.Ident:
-		check.ident(x, e, nil, false)
+		check.ident(x, e, nil, nil)
 
 	case *ast.Ellipsis:
 		// ellipses are handled explicitly where they are legal
@@ -960,11 +959,11 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 		}
 
 	case *ast.FuncLit:
-		if sig, ok := check.typ(e.Type, nil, false).(*Signature); ok {
+		if sig, ok := check.typ(e.Type).(*Signature); ok {
 			// Anonymous functions are considered part of the
 			// init expression/func declaration which contains
 			// them: use existing package-level declaration info.
-			check.funcBody("", sig, e.Body)
+			check.funcBody(check.decl, "", sig, e.Body)
 			x.mode = value
 			x.typ = sig
 		} else {
@@ -984,12 +983,12 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 					// We have an "open" [...]T array type.
 					// Create a new ArrayType with unknown length (-1)
 					// and finish setting it up after analyzing the literal.
-					typ = &Array{len: -1, elem: check.typ(atyp.Elt, nil, false)}
+					typ = &Array{len: -1, elem: check.typ(atyp.Elt)}
 					openArray = true
 				}
 			}
 			if typ == nil {
-				typ = check.typ(e.Type, nil, false)
+				typ = check.typ(e.Type)
 			}
 		}
 		if typ == nil {
@@ -1142,7 +1141,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 				// (not a constant) even if the string and the
 				// index are constant
 				x.mode = value
-				x.typ = universeByte // use 'byte' name
+				x.typ = UniverseByte // use 'byte' name
 			}
 
 		case *Array:
@@ -1310,7 +1309,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 			check.invalidAST(e.Pos(), "use of .(type) outside type switch")
 			goto Error
 		}
-		T := check.typ(e.Type, nil, false)
+		T := check.typ(e.Type)
 		if T == Typ[Invalid] {
 			goto Error
 		}
@@ -1366,7 +1365,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 	case *ast.ArrayType, *ast.StructType, *ast.FuncType,
 		*ast.InterfaceType, *ast.MapType, *ast.ChanType:
 		x.mode = typexpr
-		x.typ = check.typ(e, nil, false)
+		x.typ = check.typ(e)
 		// Note: rawExpr (caller of exprInternal) will call check.recordTypeAndValue
 		// even though check.typ has already called it. This is fine as both
 		// times the same expression and type are recorded. It is also not a

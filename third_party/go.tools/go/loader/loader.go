@@ -23,7 +23,7 @@
 //      // Use the command-line arguments to specify
 //      // a set of initial packages to load from source.
 //      // See FromArgsUsage for help.
-//      rest, err := conf.FromArgs(os.Args[1:])
+//      rest, err := conf.FromArgs(os.Args[1:], wantTests)
 //
 //      // Parse the specified files and create an ad-hoc package with path "foo".
 //      // All files must have the same 'package' declaration.
@@ -95,6 +95,7 @@ package loader
 //   go/types; see bug 7114.
 // - s/path/importPath/g to avoid ambiguity with other meanings of
 //   "path": a file name, a colon-separated directory list.
+// - Thorough overhaul of package documentation.
 
 import (
 	"errors"
@@ -107,7 +108,6 @@ import (
 	"strings"
 
 	"github.com/fzipp/pythia/third_party/go.tools/astutil"
-	"github.com/fzipp/pythia/third_party/go.tools/go/exact"
 	"github.com/fzipp/pythia/third_party/go.tools/go/gcimporter"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
 )
@@ -158,6 +158,12 @@ type Config struct {
 	// If Build is non-nil, it is used to locate source packages.
 	// Otherwise &build.Default is used.
 	Build *build.Context
+
+	// If AllowTypeErrors is true, Load will return a Program even
+	// if some of the its packages contained type errors; such
+	// errors are accessible via PackageInfo.TypeError.
+	// If false, Load will fail if any package had a type error.
+	AllowTypeErrors bool
 
 	// CreatePkgs specifies a list of non-importable initial
 	// packages to create.  Each element specifies a list of
@@ -229,15 +235,14 @@ func (conf *Config) ParseFile(filename string, src interface{}, mode parser.Mode
 // FromArgs may wish to include in their -help output.
 const FromArgsUsage = `
 <args> is a list of arguments denoting a set of initial packages.
-Each argument may take one of two forms:
+It may take one of two forms:
 
-1. A comma-separated list of *.go source files.
+1. A list of *.go source files.
 
    All of the specified files are loaded, parsed and type-checked
-   as a single package.
-   All the files must belong to the same directory.
+   as a single package.  All the files must belong to the same directory.
 
-2. An import path.
+2. A list of import paths, each denoting a package.
 
    The package's directory is found relative to the $GOROOT and
    $GOPATH using similar logic to 'go build', and the *.go files in
@@ -249,9 +254,8 @@ Each argument may take one of two forms:
    the non-*_test.go files are included in the primary package.  Test
    files whose package declaration ends with "_test" are type-checked
    as another package, the 'external' test package, so that a single
-   import path may denote two packages.  This behaviour may be
-   disabled by prefixing the import path with "notest:",
-   e.g. "notest:fmt".
+   import path may denote two packages.  (Whether this behaviour is
+   enabled is tool-specific, and may depend on additional flags.)
 
    Due to current limitations in the type-checker, only the first
    import path of the command line will contribute any tests.
@@ -267,33 +271,40 @@ A '--' argument terminates the list of packages.
 // set of initial packages to be specified; see FromArgsUsage message
 // for details.
 //
-func (conf *Config) FromArgs(args []string) (rest []string, err error) {
-	for len(args) > 0 {
-		arg := args[0]
-		args = args[1:]
+func (conf *Config) FromArgs(args []string, xtest bool) (rest []string, err error) {
+	for i, arg := range args {
 		if arg == "--" {
+			rest = args[i+1:]
+			args = args[:i]
 			break // consume "--" and return the remaining args
 		}
+	}
 
-		if strings.HasSuffix(arg, ".go") {
-			// Assume arg is a comma-separated list of *.go files
-			// denoting a single ad-hoc package.
-			err = conf.CreateFromFilenames("", strings.Split(arg, ",")...)
-		} else {
-			// Assume arg is a directory name denoting a
-			// package, perhaps plus an external test
-			// package unless prefixed by "notest:".
-			if path := strings.TrimPrefix(arg, "notest:"); path != arg {
-				conf.Import(path)
-			} else {
-				err = conf.ImportWithTests(path)
+	if len(args) > 0 && strings.HasSuffix(args[0], ".go") {
+		// Assume args is a list of a *.go files
+		// denoting a single ad-hoc package.
+		for _, arg := range args {
+			if !strings.HasSuffix(arg, ".go") {
+				return nil, fmt.Errorf("named files must be .go files: %s", arg)
 			}
 		}
-		if err != nil {
-			return nil, err
+		err = conf.CreateFromFilenames("", args...)
+	} else {
+		// Assume args are directories each denoting a
+		// package and (perhaps) an external test, iff xtest.
+		for _, arg := range args {
+			if xtest {
+				err = conf.ImportWithTests(arg)
+				if err != nil {
+					break
+				}
+			} else {
+				conf.Import(arg)
+			}
 		}
 	}
-	return args, nil
+
+	return
 }
 
 // CreateFromFilenames is a convenience function that parses the
@@ -372,7 +383,8 @@ func (conf *Config) Import(path string) {
 	if conf.ImportPkgs == nil {
 		conf.ImportPkgs = make(map[string]bool)
 	}
-	conf.ImportPkgs[path] = false // unaugmented source package
+	// Subtle: adds value 'false' unless value is already true.
+	conf.ImportPkgs[path] = conf.ImportPkgs[path] // unaugmented source package
 }
 
 // PathEnclosingInterval returns the PackageInfo and ast.Node that
@@ -380,7 +392,7 @@ func (conf *Config) Import(path string) {
 // up to the AST root.  It searches all ast.Files of all packages in prog.
 // exact is defined as for astutil.PathEnclosingInterval.
 //
-// The result is (nil, nil, false) if not found.
+// The zero value is returned if not found.
 //
 func (prog *Program) PathEnclosingInterval(start, end token.Pos) (pkg *PackageInfo, path []ast.Node, exact bool) {
 	for _, info := range prog.AllPackages {
@@ -426,8 +438,11 @@ type importInfo struct {
 // Load creates the initial packages specified by conf.{Create,Import}Pkgs,
 // loading their dependencies packages as needed.
 //
-// On success, it returns a Program containing a PackageInfo for each
-// package; all are well-typed.
+// On success, Load returns a Program containing a PackageInfo for
+// each package.  On failure, it returns an error.
+//
+// If conf.AllowTypeErrors is set, a type error does not cause Load to
+// fail, but is recorded in the PackageInfo.TypeError field.
 //
 // It is an error if no packages were loaded.
 //
@@ -454,6 +469,8 @@ func (conf *Config) Load() (*Program, error) {
 	for path := range conf.ImportPkgs {
 		info, err := imp.importPackage(path)
 		if err != nil {
+			// TODO(adonovan): don't abort Load just
+			// because of a parse error in one package.
 			return nil, err // e.g. parse error (but not type error)
 		}
 		prog.Imported[path] = info
@@ -468,19 +485,7 @@ func (conf *Config) Load() (*Program, error) {
 	}
 
 	if len(prog.Imported)+len(prog.Created) == 0 {
-		return nil, errors.New("no *.go source files nor packages were specified")
-	}
-
-	// Report errors in indirectly imported packages.
-	var errpkgs []string
-	for _, info := range prog.AllPackages {
-		if info.err != nil {
-			errpkgs = append(errpkgs, info.Pkg.Path())
-		}
-	}
-	if errpkgs != nil {
-		return nil, fmt.Errorf("couldn't load packages due to type errors: %s",
-			strings.Join(errpkgs, ", "))
+		return nil, errors.New("no initial packages were specified")
 	}
 
 	// Create infos for indirectly imported packages.
@@ -491,7 +496,64 @@ func (conf *Config) Load() (*Program, error) {
 		}
 	}
 
+	if !conf.AllowTypeErrors {
+		// Report errors in indirectly imported packages.
+		var errpkgs []string
+		for _, info := range prog.AllPackages {
+			if info.TypeError != nil {
+				errpkgs = append(errpkgs, info.Pkg.Path())
+			}
+		}
+		if errpkgs != nil {
+			return nil, fmt.Errorf("couldn't load packages due to type errors: %s",
+				strings.Join(errpkgs, ", "))
+		}
+	}
+
+	markErrorFreePackages(prog.AllPackages)
+
 	return prog, nil
+}
+
+// markErrorFreePackages sets the TransitivelyErrorFree flag on all
+// applicable packages.
+func markErrorFreePackages(allPackages map[*types.Package]*PackageInfo) {
+	// Build the transpose of the import graph.
+	importedBy := make(map[*types.Package]map[*types.Package]bool)
+	for P := range allPackages {
+		for _, Q := range P.Imports() {
+			clients, ok := importedBy[Q]
+			if !ok {
+				clients = make(map[*types.Package]bool)
+				importedBy[Q] = clients
+			}
+			clients[P] = true
+		}
+	}
+
+	// Find all packages reachable from some error package.
+	reachable := make(map[*types.Package]bool)
+	var visit func(*types.Package)
+	visit = func(p *types.Package) {
+		if !reachable[p] {
+			reachable[p] = true
+			for q := range importedBy[p] {
+				visit(q)
+			}
+		}
+	}
+	for _, info := range allPackages {
+		if info.TypeError != nil {
+			visit(info.Pkg)
+		}
+	}
+
+	// Mark the others as "transitively error-free".
+	for _, info := range allPackages {
+		if !reachable[info.Pkg] {
+			info.TransitivelyErrorFree = true
+		}
+	}
 }
 
 // build returns the effective build context.
@@ -614,14 +676,13 @@ func (imp *importer) importFromSource(path string, which string) (*PackageInfo, 
 // importable, i.e. no 'import' spec can resolve to it.
 //
 // createPackage never fails, but the resulting package may contain type
-// errors; the first of these is recorded in PackageInfo.err.
+// errors; the first of these is recorded in PackageInfo.TypeError.
 //
 func (imp *importer) createPackage(path string, files ...*ast.File) *PackageInfo {
 	info := &PackageInfo{
 		Files: files,
 		Info: types.Info{
-			Types:      make(map[ast.Expr]types.Type),
-			Values:     make(map[ast.Expr]exact.Value),
+			Types:      make(map[ast.Expr]types.TypeAndValue),
 			Objects:    make(map[*ast.Ident]types.Object),
 			Implicits:  make(map[ast.Node]types.Object),
 			Scopes:     make(map[ast.Node]*types.Scope),
@@ -636,10 +697,11 @@ func (imp *importer) createPackage(path string, files ...*ast.File) *PackageInfo
 		tc.IgnoreFuncBodies = !f(path)
 	}
 	if tc.Error == nil {
+		// TODO(adonovan): also save errors in the PackageInfo?
 		tc.Error = func(e error) { fmt.Fprintln(os.Stderr, e) }
 	}
 	tc.Import = imp.doImport // doImport wraps the user's importfn, effectively
-	info.Pkg, info.err = tc.Check(path, imp.conf.fset(), files, &info.Info)
+	info.Pkg, info.TypeError = tc.Check(path, imp.conf.fset(), files, &info.Info)
 	imp.prog.AllPackages[info.Pkg] = info
 	return info
 }

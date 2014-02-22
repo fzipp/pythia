@@ -6,7 +6,11 @@ package loader_test
 
 import (
 	"fmt"
+	"go/ast"
+	"go/build"
+	"go/token"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
@@ -14,7 +18,7 @@ import (
 
 func loadFromArgs(args []string) (prog *loader.Program, rest []string, err error) {
 	conf := &loader.Config{}
-	rest, err = conf.FromArgs(args)
+	rest, err = conf.FromArgs(args, true)
 	if err == nil {
 		prog, err = conf.Load()
 	}
@@ -39,11 +43,10 @@ func TestLoadFromArgs(t *testing.T) {
 	}
 
 	// Successful load.
-	args = []string{"fmt", "errors", "testdata/a.go,testdata/b.go", "--", "surplus"}
+	args = []string{"fmt", "errors", "--", "surplus"}
 	prog, rest, err := loadFromArgs(args)
 	if err != nil {
-		t.Errorf("loadFromArgs(%q) failed: %s", args, err)
-		return
+		t.Fatalf("loadFromArgs(%q) failed: %s", args, err)
 	}
 	if got, want := fmt.Sprint(rest), "[surplus]"; got != want {
 		t.Errorf("loadFromArgs(%q) rest: got %s, want %s", args, got, want)
@@ -54,7 +57,7 @@ func TestLoadFromArgs(t *testing.T) {
 		pkgnames = append(pkgnames, info.Pkg.Path())
 	}
 	// Only the first import path (currently) contributes tests.
-	if got, want := fmt.Sprint(pkgnames), "[fmt_test P]"; got != want {
+	if got, want := fmt.Sprint(pkgnames), "[fmt_test]"; got != want {
 		t.Errorf("Created: got %s, want %s", got, want)
 	}
 
@@ -79,6 +82,105 @@ func TestLoadFromArgs(t *testing.T) {
 	for _, w := range want {
 		if _, ok := all[w]; !ok {
 			t.Errorf("AllPackages: want element %s, got set %v", w, all)
+		}
+	}
+}
+
+func TestLoadFromArgsSource(t *testing.T) {
+	// mixture of *.go/non-go.
+	args := []string{"testdata/a.go", "fmt"}
+	prog, _, err := loadFromArgs(args)
+	if err == nil {
+		t.Errorf("loadFromArgs(%q) succeeded, want failure", args)
+	} else {
+		// "named files must be .go files: fmt": ok
+	}
+
+	// successful load
+	args = []string{"testdata/a.go", "testdata/b.go"}
+	prog, _, err = loadFromArgs(args)
+	if err != nil {
+		t.Errorf("loadFromArgs(%q) failed: %s", args, err)
+		return
+	}
+	if len(prog.Created) != 1 || prog.Created[0].Pkg.Path() != "P" {
+		t.Errorf("loadFromArgs(%q): got %v, want [P]", prog.Created)
+	}
+}
+
+func TestTransitivelyErrorFreeFlag(t *testing.T) {
+	conf := loader.Config{
+		AllowTypeErrors: true,
+		SourceImports:   true,
+	}
+	conf.Import("a")
+
+	// Fake the following packages:
+	//
+	// a --> b --> c!   c has a TypeError
+	//   \              d and e are transitively error free.
+	//    e --> d
+
+	// Temporary hack until we expose a principled PackageLocator.
+	pfn := loader.PackageLocatorFunc()
+	saved := *pfn
+	*pfn = func(_ *build.Context, fset *token.FileSet, path string, which string) (files []*ast.File, err error) {
+		if !strings.Contains(which, "g") {
+			return nil, nil // no test/xtest files
+		}
+		var contents string
+		switch path {
+		case "a":
+			contents = `package a; import (_ "b"; _ "e")`
+		case "b":
+			contents = `package b; import _ "c"`
+		case "c":
+			contents = `package c; func f() { _ = int(false) }` // type error within function body
+		case "d":
+			contents = `package d;`
+		case "e":
+			contents = `package e; import _ "d"`
+		default:
+			return nil, fmt.Errorf("no such package %q", path)
+		}
+		f, err := conf.ParseFile(fmt.Sprintf("%s/x.go", path), contents, 0)
+		return []*ast.File{f}, err
+	}
+	defer func() { *pfn = saved }()
+
+	prog, err := conf.Load()
+	if err != nil {
+		t.Errorf("Load failed: %s", err)
+	}
+	if prog == nil {
+		t.Fatalf("Load returnd nil *Program")
+	}
+
+	for pkg, info := range prog.AllPackages {
+		var wantErr, wantTEF bool
+		switch pkg.Path() {
+		case "a", "b":
+		case "c":
+			wantErr = true
+		case "d", "e":
+			wantTEF = true
+		default:
+			t.Errorf("unexpected package: %q", pkg.Path())
+			continue
+		}
+
+		if (info.TypeError != nil) != wantErr {
+			if wantErr {
+				t.Errorf("Package %q.TypeError = nil, want error", pkg.Path())
+			} else {
+				t.Errorf("Package %q has unexpected TypeError: %s",
+					pkg.Path(), info.TypeError)
+			}
+		}
+
+		if info.TransitivelyErrorFree != wantTEF {
+			t.Errorf("Package %q.TransitivelyErrorFree=%t, want %t",
+				info.TransitivelyErrorFree, wantTEF)
 		}
 	}
 }

@@ -25,8 +25,9 @@ import (
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
 	"github.com/fzipp/pythia/third_party/go.tools/go/pointer"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
+	"github.com/fzipp/pythia/third_party/go.tools/go/ssa/ssautil"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
-	"github.com/fzipp/pythia/third_party/go.tools/go/types/typemap"
+	"github.com/fzipp/pythia/third_party/go.tools/go/types/typeutil"
 )
 
 var inputs = []string{
@@ -135,16 +136,15 @@ func (e *expectation) needsProbe() bool {
 	return e.kind == "pointsto" || e.kind == "types"
 }
 
-// Find probe (call to print(x)) of same source
-// file/line as expectation.
-func findProbe(prog *ssa.Program, probes map[*ssa.CallCommon]pointer.Pointer, e *expectation) (site *ssa.CallCommon, ptr pointer.Pointer) {
-	for call, ptr := range probes {
+// Find probe (call to print(x)) of same source file/line as expectation.
+func findProbe(prog *ssa.Program, probes map[*ssa.CallCommon]bool, queries map[ssa.Value]pointer.Pointer, e *expectation) (site *ssa.CallCommon, pts pointer.PointsToSet) {
+	for call := range probes {
 		pos := prog.Fset.Position(call.Pos())
 		if pos.Line == e.linenum && pos.Filename == e.filename {
 			// TODO(adonovan): send this to test log (display only on failure).
 			// fmt.Printf("%s:%d: info: found probe for %s: %s\n",
 			// 	e.filename, e.linenum, e, p.arg0) // debugging
-			return call, ptr
+			return call, queries[call.Args[0]].PointsTo()
 		}
 	}
 	return // e.g. analysis didn't reach this call
@@ -167,16 +167,35 @@ func doOneInput(input, filename string) bool {
 		fmt.Println(err)
 		return false
 	}
+	mainPkgInfo := iprog.Created[0].Pkg
 
 	// SSA creation + building.
 	prog := ssa.Create(iprog, ssa.SanityCheckFunctions)
 	prog.BuildAll()
 
-	mainpkg := prog.Package(iprog.Created[0].Pkg)
+	mainpkg := prog.Package(mainPkgInfo)
 	ptrmain := mainpkg // main package for the pointer analysis
 	if mainpkg.Func("main") == nil {
 		// No main function; assume it's a test.
 		ptrmain = prog.CreateTestMainPackage(mainpkg)
+	}
+
+	// Find all calls to the built-in print(x).  Analytically,
+	// print is a no-op, but it's a convenient hook for testing
+	// the PTS of an expression, so our tests use it.
+	probes := make(map[*ssa.CallCommon]bool)
+	for fn := range ssautil.AllFunctions(prog) {
+		if fn.Pkg == mainpkg {
+			for _, b := range fn.Blocks {
+				for _, instr := range b.Instrs {
+					if instr, ok := instr.(ssa.CallInstruction); ok {
+						if b, ok := instr.Common().Value.(*ssa.Builtin); ok && b.Name() == "print" {
+							probes[instr.Common()] = true
+						}
+					}
+				}
+			}
+		}
 	}
 
 	ok := true
@@ -271,11 +290,13 @@ func doOneInput(input, filename string) bool {
 
 	// Run the analysis.
 	config := &pointer.Config{
-		Reflection:      true,
-		BuildCallGraph:  true,
-		QueryPrintCalls: true,
-		Mains:           []*ssa.Package{ptrmain},
-		Log:             &log,
+		Reflection:     true,
+		BuildCallGraph: true,
+		Mains:          []*ssa.Package{ptrmain},
+		Log:            &log,
+	}
+	for probe := range probes {
+		config.AddQuery(probe.Args[0])
 	}
 
 	// Print the log is there was an error or a panic.
@@ -291,10 +312,10 @@ func doOneInput(input, filename string) bool {
 	// Check the expectations.
 	for _, e := range exps {
 		var call *ssa.CallCommon
-		var ptr pointer.Pointer
+		var pts pointer.PointsToSet
 		var tProbe types.Type
 		if e.needsProbe() {
-			if call, ptr = findProbe(prog, result.PrintCalls, e); call == nil {
+			if call, pts = findProbe(prog, probes, result.Queries, e); call == nil {
 				ok = false
 				e.errorf("unreachable print() statement has expectation %s", e)
 				continue
@@ -309,12 +330,12 @@ func doOneInput(input, filename string) bool {
 
 		switch e.kind {
 		case "pointsto":
-			if !checkPointsToExpectation(e, ptr, lineMapping, prog) {
+			if !checkPointsToExpectation(e, pts, lineMapping, prog) {
 				ok = false
 			}
 
 		case "types":
-			if !checkTypesExpectation(e, ptr, tProbe) {
+			if !checkTypesExpectation(e, pts, tProbe) {
 				ok = false
 			}
 
@@ -359,7 +380,7 @@ func labelString(l *pointer.Label, lineMapping map[string]string, prog *ssa.Prog
 	return str
 }
 
-func checkPointsToExpectation(e *expectation, ptr pointer.Pointer, lineMapping map[string]string, prog *ssa.Program) bool {
+func checkPointsToExpectation(e *expectation, pts pointer.PointsToSet, lineMapping map[string]string, prog *ssa.Program) bool {
 	expected := make(map[string]int)
 	surplus := make(map[string]int)
 	exact := true
@@ -372,7 +393,7 @@ func checkPointsToExpectation(e *expectation, ptr pointer.Pointer, lineMapping m
 	}
 	// Find the set of labels that the probe's
 	// argument (x in print(x)) may point to.
-	for _, label := range ptr.PointsTo().Labels() {
+	for _, label := range pts.Labels() {
 		name := labelString(label, lineMapping, prog)
 		if expected[name] > 0 {
 			expected[name]--
@@ -410,9 +431,9 @@ func underlyingType(typ types.Type) types.Type {
 	return typ
 }
 
-func checkTypesExpectation(e *expectation, ptr pointer.Pointer, typ types.Type) bool {
-	var expected typemap.M
-	var surplus typemap.M
+func checkTypesExpectation(e *expectation, pts pointer.PointsToSet, typ types.Type) bool {
+	var expected typeutil.Map
+	var surplus typeutil.Map
 	exact := true
 	for _, g := range e.types {
 		if g == types.Typ[types.Invalid] {
@@ -429,7 +450,7 @@ func checkTypesExpectation(e *expectation, ptr pointer.Pointer, typ types.Type) 
 
 	// Find the set of types that the probe's
 	// argument (x in print(x)) may contain.
-	for _, T := range ptr.PointsTo().DynamicTypes().Keys() {
+	for _, T := range pts.DynamicTypes().Keys() {
 		if expected.At(T) != nil {
 			expected.Delete(T)
 		} else if exact {
@@ -451,14 +472,14 @@ func checkTypesExpectation(e *expectation, ptr pointer.Pointer, typ types.Type) 
 
 var errOK = errors.New("OK")
 
-func checkCallsExpectation(prog *ssa.Program, e *expectation, cg callgraph.Graph) bool {
+func checkCallsExpectation(prog *ssa.Program, e *expectation, cg *callgraph.Graph) bool {
 	found := make(map[string]int)
-	err := callgraph.GraphVisitEdges(cg, func(edge callgraph.Edge) error {
+	err := callgraph.GraphVisitEdges(cg, func(edge *callgraph.Edge) error {
 		// Name-based matching is inefficient but it allows us to
 		// match functions whose names that would not appear in an
 		// index ("<root>") or which are not unique ("func@1.2").
-		if edge.Caller.Func().String() == e.args[0] {
-			calleeStr := edge.Callee.Func().String()
+		if edge.Caller.Func.String() == e.args[0] {
+			calleeStr := edge.Callee.Func.String()
 			if calleeStr == e.args[1] {
 				return errOK // expectation satisified; stop the search
 			}

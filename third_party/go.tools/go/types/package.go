@@ -16,11 +16,10 @@ type Package struct {
 	fake     bool // scope lookup errors are silently dropped if package is fake (internal use only)
 }
 
-// NewPackage returns a new Package for the given package path,
-// name, and scope. The package is not complete and contains no
-// explicit imports.
-func NewPackage(path, name string, scope *Scope) *Package {
-	return &Package{path: path, name: name, scope: scope}
+// NewPackage returns a new Package for the given package path and name.
+// The package is not complete and contains no explicit imports.
+func NewPackage(path, name string) *Package {
+	return &Package{path: path, name: name, scope: NewScope(Universe)}
 }
 
 // Path returns the package path.
@@ -50,5 +49,5 @@ func (pkg *Package) Imports() []*Package { return pkg.imports }
 func (pkg *Package) SetImports(list []*Package) { pkg.imports = list }
 
 func (pkg *Package) String() string {
-	return fmt.Sprintf("package %s (%s)", pkg.name, pkg.path)
+	return fmt.Sprintf("package %s (%q)", pkg.name, pkg.path)
 }

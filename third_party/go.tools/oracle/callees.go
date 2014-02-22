@@ -17,9 +17,6 @@ import (
 
 // Callees reports the possible callees of the function call site
 // identified by the specified source location.
-//
-// TODO(adonovan): if a callee is a wrapper, show the callee's callee.
-//
 func callees(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	pkg := o.prog.Package(qpos.info.Pkg)
 	if pkg == nil {
@@ -103,26 +100,22 @@ func findCallees(o *Oracle, site ssa.CallInstruction) ([]*ssa.Function, error) {
 
 	// Dynamic call: use pointer analysis.
 	o.ptaConfig.BuildCallGraph = true
-	callgraph := ptrAnalysis(o).CallGraph
+	cg := ptrAnalysis(o).CallGraph
+	cg.DeleteSyntheticNodes()
 
 	// Find all call edges from the site.
-	calleesMap := make(map[*ssa.Function]bool)
-	var foundCGNode bool
-	for _, n := range callgraph.Nodes() {
-		if n.Func() == site.Parent() {
-			foundCGNode = true
-			for _, edge := range n.Edges() {
-				if edge.Site == site {
-					calleesMap[edge.Callee.Func()] = true
-				}
-			}
-		}
-	}
-	if !foundCGNode {
+	n := cg.Nodes[site.Parent()]
+	if n == nil {
 		return nil, fmt.Errorf("this call site is unreachable in this analysis")
 	}
+	calleesMap := make(map[*ssa.Function]bool)
+	for _, edge := range n.Out {
+		if edge.Site == site {
+			calleesMap[edge.Callee.Func] = true
+		}
+	}
 
-	// Discard context, de-duplicate and sort.
+	// De-duplicate and sort.
 	funcs := make([]*ssa.Function, 0, len(calleesMap))
 	for f := range calleesMap {
 		funcs = append(funcs, f)

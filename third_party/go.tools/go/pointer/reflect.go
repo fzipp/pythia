@@ -63,7 +63,7 @@ func (c *rVBytesConstraint) solve(a *analysis, _ *node, delta nodeset) {
 		}
 
 		tSlice, ok := tDyn.Underlying().(*types.Slice)
-		if ok && types.IsIdentical(tSlice.Elem(), types.Typ[types.Uint8]) {
+		if ok && types.Identical(tSlice.Elem(), types.Typ[types.Uint8]) {
 			if a.onlineCopy(c.result, slice) {
 				changed = true
 			}
@@ -206,7 +206,7 @@ func reflectCall(a *analysis, cgn *cgnode, dotdotdot bool) {
 	recv := a.funcParams(cgn.obj)
 	arg := recv + 1
 	ret := reflectCallImpl(a, cgn, site, recv, arg, dotdotdot)
-	a.addressOf(a.funcResults(cgn.obj), ret)
+	a.addressOf(cgn.fn.Signature.Results().At(0).Type(), a.funcResults(cgn.obj), ret)
 }
 
 func ext۰reflect۰Value۰Call(a *analysis, cgn *cgnode) {
@@ -484,9 +484,10 @@ func (c *rVMapKeysConstraint) solve(a *analysis, _ *node, delta nodeset) {
 func ext۰reflect۰Value۰MapKeys(a *analysis, cgn *cgnode) {
 	// Allocate an array for the result.
 	obj := a.nextNode()
-	a.addNodes(types.NewArray(a.reflectValueObj.Type(), 1), "reflect.MapKeys result")
+	T := types.NewSlice(a.reflectValueObj.Type())
+	a.addNodes(sliceToArray(T), "reflect.MapKeys result")
 	a.endObject(obj, cgn, nil)
-	a.addressOf(a.funcResults(cgn.obj), obj)
+	a.addressOf(T, a.funcResults(cgn.obj), obj)
 
 	a.addConstraint(&rVMapKeysConstraint{
 		cgn:    cgn,
@@ -625,7 +626,7 @@ func (c *rVSetBytesConstraint) solve(a *analysis, _ *node, delta nodeset) {
 		}
 
 		tSlice, ok := tDyn.Underlying().(*types.Slice)
-		if ok && types.IsIdentical(tSlice.Elem(), types.Typ[types.Uint8]) {
+		if ok && types.Identical(tSlice.Elem(), types.Typ[types.Uint8]) {
 			if a.onlineCopy(slice, c.x) {
 				a.addWork(slice)
 			}
@@ -1559,16 +1560,18 @@ func changeRecv(sig *types.Signature) *types.Signature {
 	for i := 0; i < n; i++ {
 		p2[i+1] = params.At(i)
 	}
-	return types.NewSignature(nil, nil, types.NewTuple(p2...), sig.Results(), sig.IsVariadic())
+	return types.NewSignature(nil, nil, types.NewTuple(p2...), sig.Results(), sig.Variadic())
 }
 
 func (c *rtypeMethodByNameConstraint) solve(a *analysis, _ *node, delta nodeset) {
 	for tObj := range delta {
 		T := a.nodes[tObj].obj.data.(types.Type)
 
+		_, isInterface := T.Underlying().(*types.Interface)
+
 		// We don't use Lookup(c.name) when c.name != "" to avoid
 		// ambiguity: >1 unexported methods could match.
-		mset := T.MethodSet()
+		mset := a.prog.MethodSets.MethodSet(T)
 		for i, n := 0, mset.Len(); i < n; i++ {
 			sel := mset.At(i)
 			if c.name == "" || c.name == sel.Obj().Name() {
@@ -1582,8 +1585,17 @@ func (c *rtypeMethodByNameConstraint) solve(a *analysis, _ *node, delta nodeset)
 				// }
 				fn := a.prog.Method(sel)
 
+				sig := fn.Signature
+				if isInterface {
+					// discard receiver
+					sig = types.NewSignature(nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+				} else {
+					// move receiver to params[0]
+					sig = changeRecv(sig)
+
+				}
 				// a.offsetOf(Type) is 3.
-				if id := c.result + 3; a.addLabel(id, a.makeRtype(changeRecv(fn.Signature))) {
+				if id := c.result + 3; a.addLabel(id, a.makeRtype(sig)) {
 					a.addWork(id)
 				}
 				// a.offsetOf(Func) is 4.

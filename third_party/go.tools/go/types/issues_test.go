@@ -48,13 +48,13 @@ var (
 	}
 
 	var conf Config
-	types := make(map[ast.Expr]Type)
+	types := make(map[ast.Expr]TypeAndValue)
 	_, err = conf.Check(f.Name.Name, fset, []*ast.File{f}, &Info{Types: types})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for x, typ := range types {
+	for x, tv := range types {
 		var want Type
 		switch x := x.(type) {
 		case *ast.BasicLit:
@@ -75,8 +75,8 @@ var (
 				want = Typ[UntypedNil]
 			}
 		}
-		if want != nil && !IsIdentical(typ, want) {
-			t.Errorf("got %s; want %s", typ, want)
+		if want != nil && !Identical(tv.Type, want) {
+			t.Errorf("got %s; want %s", tv.Type, want)
 		}
 	}
 }
@@ -96,7 +96,7 @@ func f() int {
 	}
 
 	var conf Config
-	types := make(map[ast.Expr]Type)
+	types := make(map[ast.Expr]TypeAndValue)
 	_, err = conf.Check(f.Name.Name, fset, []*ast.File{f}, &Info{Types: types})
 	if err != nil {
 		t.Fatal(err)
@@ -104,10 +104,10 @@ func f() int {
 
 	want := Typ[Int]
 	n := 0
-	for x, got := range types {
+	for x, tv := range types {
 		if _, ok := x.(*ast.CallExpr); ok {
-			if got != want {
-				t.Errorf("%s: got %s; want %s", fset.Position(x.Pos()), got, want)
+			if tv.Type != want {
+				t.Errorf("%s: got %s; want %s", fset.Position(x.Pos()), tv.Type, want)
 			}
 			n++
 		}
@@ -115,5 +115,32 @@ func f() int {
 
 	if n != 2 {
 		t.Errorf("got %d CallExprs; want 2", n)
+	}
+}
+
+func TestIssue7245(t *testing.T) {
+	src := `
+package p
+func (T) m() (res bool) { return }
+type T struct{} // receiver type after method declaration
+`
+	f, err := parser.ParseFile(fset, "", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var conf Config
+	objects := make(map[*ast.Ident]Object)
+	_, err = conf.Check(f.Name.Name, fset, []*ast.File{f}, &Info{Objects: objects})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := f.Decls[0].(*ast.FuncDecl)
+	res1 := objects[m.Name].(*Func).Type().(*Signature).Results().At(0)
+	res2 := objects[m.Type.Results.List[0].Names[0]].(*Var)
+
+	if res1 != res2 {
+		t.Errorf("got %s (%p) != %s (%p)", res1, res2, res1, res2)
 	}
 }

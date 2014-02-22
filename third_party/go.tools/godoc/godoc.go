@@ -219,12 +219,13 @@ type PageInfo struct {
 	Err     error  // error or nil
 
 	// package info
-	FSet     *token.FileSet         // nil if no package documentation
-	PDoc     *doc.Package           // nil if no package documentation
-	Examples []*doc.Example         // nil if no example code
-	Notes    map[string][]*doc.Note // nil if no package Notes
-	PAst     *ast.File              // nil if no AST with package exports
-	IsMain   bool                   // true for package main
+	FSet       *token.FileSet         // nil if no package documentation
+	PDoc       *doc.Package           // nil if no package documentation
+	Examples   []*doc.Example         // nil if no example code
+	Notes      map[string][]*doc.Note // nil if no package Notes
+	PAst       map[string]*ast.File   // nil if no AST with package exports
+	IsMain     bool                   // true for package main
+	IsFiltered bool                   // true if results were filtered
 
 	// directory info
 	Dirs    *DirList  // nil if no directory information
@@ -279,6 +280,7 @@ func newPosLink_urlFunc(srcPosLinkFunc func(s string, line, low, high int) strin
 }
 
 func srcPosLinkFunc(s string, line, low, high int) string {
+	s = srcLinkFunc(s)
 	var buf bytes.Buffer
 	template.HTMLEscape(&buf, []byte(s))
 	// selection ranges are of form "s=low:high"
@@ -300,7 +302,11 @@ func srcPosLinkFunc(s string, line, low, high int) string {
 }
 
 func srcLinkFunc(s string) string {
-	return pathpkg.Clean("/" + s)
+	s = pathpkg.Clean("/" + s)
+	if !strings.HasPrefix(s, "/src/pkg/") {
+		s = "/src/pkg" + s
+	}
+	return s
 }
 
 // queryLinkFunc returns a URL for a line in a source file with a highlighted

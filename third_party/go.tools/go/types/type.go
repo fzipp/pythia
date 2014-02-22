@@ -14,9 +14,6 @@ type Type interface {
 	// Underlying returns the underlying type of a type.
 	Underlying() Type
 
-	// MethodSet returns the method set of a type.
-	MethodSet() *MethodSet
-
 	// String returns a string representation of a type.
 	String() string
 }
@@ -126,8 +123,7 @@ type Struct struct {
 	fields []*Var
 	tags   []string // field tags; nil if there are no tags
 	// TODO(gri) access to offsets is not threadsafe - fix this
-	offsets []int64         // field offsets in bytes, lazily initialized
-	mset    cachedMethodSet // method set, lazily initialized
+	offsets []int64 // field offsets in bytes, lazily initialized
 }
 
 // NewStruct returns a new struct with the given fields and corresponding field tags.
@@ -163,8 +159,7 @@ func (s *Struct) Tag(i int) string {
 
 // A Pointer represents a pointer type.
 type Pointer struct {
-	base Type            // element type
-	mset cachedMethodSet // method set, lazily initialized
+	base Type // element type
 }
 
 // NewPointer returns a new pointer type for the given element (base) type.
@@ -201,21 +196,21 @@ func (t *Tuple) At(i int) *Var { return t.vars[i] }
 
 // A Signature represents a (non-builtin) function or method type.
 type Signature struct {
-	scope      *Scope // function scope, always present
-	recv       *Var   // nil if not a method
-	params     *Tuple // (incoming) parameters from left to right; or nil
-	results    *Tuple // (outgoing) results from left to right; or nil
-	isVariadic bool   // true if the last parameter's type is of the form ...T
+	scope    *Scope // function scope, always present
+	recv     *Var   // nil if not a method
+	params   *Tuple // (incoming) parameters from left to right; or nil
+	results  *Tuple // (outgoing) results from left to right; or nil
+	variadic bool   // true if the last parameter's type is of the form ...T
 }
 
 // NewSignature returns a new function type for the given receiver, parameters,
-// and results, either of which may be nil. If isVariadic is set, the function
+// and results, either of which may be nil. If variadic is set, the function
 // is variadic, it must have at least one parameter, and the last parameter
 // must be of unnamed slice type.
-func NewSignature(scope *Scope, recv *Var, params, results *Tuple, isVariadic bool) *Signature {
+func NewSignature(scope *Scope, recv *Var, params, results *Tuple, variadic bool) *Signature {
 	// TODO(gri) Should we rely on the correct (non-nil) incoming scope
 	//           or should this function allocate and populate a scope?
-	if isVariadic {
+	if variadic {
 		n := params.Len()
 		if n == 0 {
 			panic("types.NewSignature: variadic function must have at least one parameter")
@@ -224,7 +219,7 @@ func NewSignature(scope *Scope, recv *Var, params, results *Tuple, isVariadic bo
 			panic("types.NewSignature: variadic parameter must be of unnamed slice type")
 		}
 	}
-	return &Signature{scope, recv, params, results, isVariadic}
+	return &Signature{scope, recv, params, results, variadic}
 }
 
 // Recv returns the receiver of signature s (if a method), or nil if a
@@ -241,16 +236,15 @@ func (s *Signature) Params() *Tuple { return s.params }
 // Results returns the results of signature s, or nil.
 func (s *Signature) Results() *Tuple { return s.results }
 
-// IsVariadic reports whether the signature s is variadic.
-func (s *Signature) IsVariadic() bool { return s.isVariadic }
+// Variadic reports whether the signature s is variadic.
+func (s *Signature) Variadic() bool { return s.variadic }
 
 // An Interface represents an interface type.
 type Interface struct {
 	methods   []*Func  // ordered list of explicitly declared methods
 	embeddeds []*Named // ordered list of explicitly embedded types
 
-	allMethods []*Func         // ordered list of methods declared with or embedded in this interface (TODO(gri): replace with mset)
-	mset       cachedMethodSet // method set for interface, lazily initialized
+	allMethods []*Func // ordered list of methods declared with or embedded in this interface (TODO(gri): replace with mset)
 }
 
 // NewInterface returns a new interface for the given methods and embedded types.
@@ -364,11 +358,9 @@ func (c *Chan) Elem() Type { return c.elem }
 
 // A Named represents a named type.
 type Named struct {
-	obj         *TypeName       // corresponding declared object
-	underlying  Type            // possibly a *Named if !complete; never a *Named if complete
-	complete    bool            // if set, the underlying type has been determined
-	methods     []*Func         // methods declared for this type (not the method set of this type)
-	mset, pmset cachedMethodSet // method set for T, *T, lazily initialized
+	obj        *TypeName // corresponding declared object
+	underlying Type      // possibly a *Named during setup; never a *Named once set up completely
+	methods    []*Func   // methods declared for this type (not the method set of this type)
 }
 
 // NewNamed returns a new named type for the given type name, underlying type, and associated methods.
@@ -377,7 +369,7 @@ func NewNamed(obj *TypeName, underlying Type, methods []*Func) *Named {
 	if _, ok := underlying.(*Named); ok {
 		panic("types.NewNamed: underlying type must not be *Named")
 	}
-	typ := &Named{obj: obj, underlying: underlying, complete: underlying != nil, methods: methods}
+	typ := &Named{obj: obj, underlying: underlying, methods: methods}
 	if obj.typ == nil {
 		obj.typ = typ
 	}
@@ -403,7 +395,6 @@ func (t *Named) SetUnderlying(underlying Type) {
 		panic("types.Named.SetUnderlying: underlying type must not be *Named")
 	}
 	t.underlying = underlying
-	t.complete = true
 }
 
 // AddMethod adds method m unless it is already in the method list.
@@ -427,25 +418,6 @@ func (t *Interface) Underlying() Type { return t }
 func (t *Map) Underlying() Type       { return t }
 func (t *Chan) Underlying() Type      { return t }
 func (t *Named) Underlying() Type     { return t.underlying }
-
-func (t *Basic) MethodSet() *MethodSet  { return &emptyMethodSet }
-func (t *Array) MethodSet() *MethodSet  { return &emptyMethodSet }
-func (t *Slice) MethodSet() *MethodSet  { return &emptyMethodSet }
-func (t *Struct) MethodSet() *MethodSet { return t.mset.of(t) }
-func (t *Pointer) MethodSet() *MethodSet {
-	if named, _ := t.base.(*Named); named != nil {
-		// Avoid recomputing mset(*T) for each distinct Pointer
-		// instance whose underlying type is a named type.
-		return named.pmset.of(t)
-	}
-	return t.mset.of(t)
-}
-func (t *Tuple) MethodSet() *MethodSet     { return &emptyMethodSet }
-func (t *Signature) MethodSet() *MethodSet { return &emptyMethodSet }
-func (t *Interface) MethodSet() *MethodSet { return t.mset.of(t) }
-func (t *Map) MethodSet() *MethodSet       { return &emptyMethodSet }
-func (t *Chan) MethodSet() *MethodSet      { return &emptyMethodSet }
-func (t *Named) MethodSet() *MethodSet     { return t.mset.of(t) }
 
 func (t *Basic) String() string     { return TypeString(nil, t) }
 func (t *Array) String() string     { return TypeString(nil, t) }

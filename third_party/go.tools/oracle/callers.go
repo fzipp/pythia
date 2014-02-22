@@ -16,8 +16,6 @@ import (
 // Callers reports the possible callers of the function
 // immediately enclosing the specified source location.
 //
-// TODO(adonovan): if a caller is a wrapper, show the caller's caller.
-//
 func callers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	pkg := o.prog.Package(qpos.info.Pkg)
 	if pkg == nil {
@@ -38,13 +36,8 @@ func callers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 	// call found to originate from target.
 	o.ptaConfig.BuildCallGraph = true
 	cg := ptrAnalysis(o).CallGraph
-	var edges []callgraph.Edge
-	callgraph.GraphVisitEdges(cg, func(edge callgraph.Edge) error {
-		if edge.Callee.Func() == target {
-			edges = append(edges, edge)
-		}
-		return nil
-	})
+	cg.DeleteSyntheticNodes()
+	edges := cg.CreateNode(target).In
 	// TODO(adonovan): sort + dedup calls to ensure test determinism.
 
 	return &callersResult{
@@ -56,12 +49,12 @@ func callers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 
 type callersResult struct {
 	target    *ssa.Function
-	callgraph callgraph.Graph
-	edges     []callgraph.Edge
+	callgraph *callgraph.Graph
+	edges     []*callgraph.Edge
 }
 
 func (r *callersResult) display(printf printfFunc) {
-	root := r.callgraph.Root()
+	root := r.callgraph.Root
 	if r.edges == nil {
 		printf(r.target, "%s is not reachable in this program.", r.target)
 	} else {
@@ -70,18 +63,18 @@ func (r *callersResult) display(printf printfFunc) {
 			if edge.Caller == root {
 				printf(r.target, "the root of the call graph")
 			} else {
-				printf(edge.Site, "\t%s from %s", edge.Site.Common().Description(), edge.Caller.Func())
+				printf(edge.Site, "\t%s from %s", edge.Site.Common().Description(), edge.Caller.Func)
 			}
 		}
 	}
 }
 
 func (r *callersResult) toSerial(res *serial.Result, fset *token.FileSet) {
-	root := r.callgraph.Root()
+	root := r.callgraph.Root
 	var callers []serial.Caller
 	for _, edge := range r.edges {
 		var c serial.Caller
-		c.Caller = edge.Caller.Func().String()
+		c.Caller = edge.Caller.Func.String()
 		if edge.Caller == root {
 			c.Desc = "synthetic call"
 		} else {

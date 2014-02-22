@@ -13,9 +13,10 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/fzipp/pythia/third_party/go.tools/go/callgraph"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
-	"github.com/fzipp/pythia/third_party/go.tools/go/types/typemap"
+	"github.com/fzipp/pythia/third_party/go.tools/go/types/typeutil"
 )
 
 // object.flags bitmask values.
@@ -193,6 +194,7 @@ type analysis struct {
 	panicNode   nodeid                      // sink for panic, source for recover
 	nodes       []*node                     // indexed by nodeid
 	flattenMemo map[types.Type][]*fieldInfo // memoization of flatten()
+	trackTypes  map[types.Type]bool         // memoization of shouldTrack()
 	constraints []constraint                // set of constraints
 	cgnodes     []*cgnode                   // all cgnodes
 	genq        []*cgnode                   // queue of functions to generate constraints for
@@ -204,17 +206,18 @@ type analysis struct {
 	localobj    map[ssa.Value]nodeid        // maps v to sole member of pts(v), if singleton
 	work        worklist                    // solver's worklist
 	result      *Result                     // results of the analysis
+	track       track                       // pointerlike types whose aliasing we track
 
 	// Reflection & intrinsics:
-	hasher              typemap.Hasher // cache of type hashes
-	reflectValueObj     types.Object   // type symbol for reflect.Value (if present)
-	reflectValueCall    *ssa.Function  // (reflect.Value).Call
-	reflectRtypeObj     types.Object   // *types.TypeName for reflect.rtype (if present)
-	reflectRtypePtr     *types.Pointer // *reflect.rtype
-	reflectType         *types.Named   // reflect.Type
-	rtypes              typemap.M      // nodeid of canonical *rtype-tagged object for type T
-	reflectZeros        typemap.M      // nodeid of canonical T-tagged object for zero value
-	runtimeSetFinalizer *ssa.Function  // runtime.SetFinalizer
+	hasher              typeutil.Hasher // cache of type hashes
+	reflectValueObj     types.Object    // type symbol for reflect.Value (if present)
+	reflectValueCall    *ssa.Function   // (reflect.Value).Call
+	reflectRtypeObj     types.Object    // *types.TypeName for reflect.rtype (if present)
+	reflectRtypePtr     *types.Pointer  // *reflect.rtype
+	reflectType         *types.Named    // reflect.Type
+	rtypes              typeutil.Map    // nodeid of canonical *rtype-tagged object for type T
+	reflectZeros        typeutil.Map    // nodeid of canonical T-tagged object for zero value
+	runtimeSetFinalizer *ssa.Function   // runtime.SetFinalizer
 }
 
 // enclosingObj returns the object (addressible memory object) that encloses node id.
@@ -243,7 +246,41 @@ func (a *analysis) labelFor(id nodeid) *Label {
 }
 
 func (a *analysis) warnf(pos token.Pos, format string, args ...interface{}) {
-	a.result.Warnings = append(a.result.Warnings, Warning{pos, fmt.Sprintf(format, args...)})
+	msg := fmt.Sprintf(format, args...)
+	if a.log != nil {
+		fmt.Fprintf(a.log, "%s: warning: %s\n", a.prog.Fset.Position(pos), msg)
+	}
+	a.result.Warnings = append(a.result.Warnings, Warning{pos, msg})
+}
+
+// computeTrackBits sets a.track to the necessary 'track' bits for the pointer queries.
+func (a *analysis) computeTrackBits() {
+	var queryTypes []types.Type
+	for v := range a.config.Queries {
+		queryTypes = append(queryTypes, v.Type())
+	}
+	for v := range a.config.IndirectQueries {
+		queryTypes = append(queryTypes, mustDeref(v.Type()))
+	}
+	for _, t := range queryTypes {
+		switch t.Underlying().(type) {
+		case *types.Chan:
+			a.track |= trackChan
+		case *types.Map:
+			a.track |= trackMap
+		case *types.Pointer:
+			a.track |= trackPtr
+		case *types.Slice:
+			a.track |= trackSlice
+		case *types.Interface:
+			a.track = trackAll
+			return
+		}
+		if rVObj := a.reflectValueObj; rVObj != nil && types.Identical(t, rVObj.Type()) {
+			a.track = trackAll
+			return
+		}
+	}
 }
 
 // Analyze runs the pointer analysis with the scope and options
@@ -257,13 +294,13 @@ func Analyze(config *Config) *Result {
 		globalval:   make(map[ssa.Value]nodeid),
 		globalobj:   make(map[ssa.Value]nodeid),
 		flattenMemo: make(map[types.Type][]*fieldInfo),
-		hasher:      typemap.MakeHasher(),
+		trackTypes:  make(map[types.Type]bool),
+		hasher:      typeutil.MakeHasher(),
 		intrinsics:  make(map[*ssa.Function]intrinsic),
 		work:        makeMapWorklist(),
 		result: &Result{
-			Queries:         make(map[ssa.Value][]Pointer),
-			IndirectQueries: make(map[ssa.Value][]Pointer),
-			PrintCalls:      make(map[*ssa.CallCommon]Pointer),
+			Queries:         make(map[ssa.Value]Pointer),
+			IndirectQueries: make(map[ssa.Value]Pointer),
 		},
 	}
 
@@ -275,10 +312,20 @@ func Analyze(config *Config) *Result {
 		fmt.Fprintln(a.log, "======== NEW ANALYSIS ========")
 	}
 
+	// Pointer analysis requires a complete program for soundness.
+	// Check to prevent accidental misconfiguration.
+	for _, pkg := range a.prog.AllPackages() {
+		// (This only checks that the package scope is complete,
+		// not that func bodies exist, but it's a good signal.)
+		if !pkg.Object.Complete() {
+			panic(fmt.Sprintf(`pointer analysis requires a complete program yet package %q was incomplete (set loader.Config.SourceImports during loading)`, pkg.Object.Path()))
+		}
+	}
+
 	if reflect := a.prog.ImportedPackage("reflect"); reflect != nil {
 		rV := reflect.Object.Scope().Lookup("Value")
 		a.reflectValueObj = rV
-		a.reflectValueCall = a.prog.Method(rV.Type().MethodSet().Lookup(nil, "Call"))
+		a.reflectValueCall = a.prog.LookupMethod(rV.Type(), nil, "Call")
 		a.reflectType = reflect.Object.Scope().Lookup("Type").Type().(*types.Named)
 		a.reflectRtypeObj = reflect.Object.Scope().Lookup("rtype")
 		a.reflectRtypePtr = types.NewPointer(a.reflectRtypeObj.Type())
@@ -287,14 +334,20 @@ func Analyze(config *Config) *Result {
 		tReflectValue := a.reflectValueObj.Type()
 		a.flattenMemo[tReflectValue] = []*fieldInfo{{typ: tReflectValue}}
 
+		// Override shouldTrack of reflect.Value and *reflect.rtype.
+		// Always track pointers of these types.
+		a.trackTypes[tReflectValue] = true
+		a.trackTypes[a.reflectRtypePtr] = true
+
 		a.rtypes.SetHasher(a.hasher)
 		a.reflectZeros.SetHasher(a.hasher)
 	}
 	if runtime := a.prog.ImportedPackage("runtime"); runtime != nil {
 		a.runtimeSetFinalizer = runtime.Func("SetFinalizer")
 	}
+	a.computeTrackBits()
 
-	root := a.generate()
+	a.generate()
 
 	if a.log != nil {
 		// Show size of constraint system.
@@ -322,17 +375,20 @@ func Analyze(config *Config) *Result {
 		}
 	}
 
+	// Create callgraph.Nodes in deterministic order.
+	if cg := a.result.CallGraph; cg != nil {
+		for _, caller := range a.cgnodes {
+			cg.CreateNode(caller.fn)
+		}
+	}
+
 	// Add dynamic edges to call graph.
 	for _, caller := range a.cgnodes {
 		for _, site := range caller.sites {
 			for callee := range a.nodes[site.targets].pts {
-				a.callEdge(site, callee)
+				a.callEdge(caller, site, callee)
 			}
 		}
-	}
-
-	if a.config.BuildCallGraph {
-		a.result.CallGraph = &cgraph{root, a.cgnodes}
 	}
 
 	return a.result
@@ -341,15 +397,15 @@ func Analyze(config *Config) *Result {
 // callEdge is called for each edge in the callgraph.
 // calleeid is the callee's object node (has otFunction flag).
 //
-func (a *analysis) callEdge(site *callsite, calleeid nodeid) {
+func (a *analysis) callEdge(caller *cgnode, site *callsite, calleeid nodeid) {
 	obj := a.nodes[calleeid].obj
 	if obj.flags&otFunction == 0 {
 		panic(fmt.Sprintf("callEdge %s -> n%d: not a function object", site, calleeid))
 	}
 	callee := obj.cgn
 
-	if a.config.BuildCallGraph {
-		site.callees = append(site.callees, callee)
+	if cg := a.result.CallGraph; cg != nil {
+		callgraph.AddEdge(cg.CreateNode(caller.fn), site.instr, cg.CreateNode(callee.fn))
 	}
 
 	if a.log != nil {
