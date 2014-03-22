@@ -1103,6 +1103,10 @@ func (a *analysis) genRootCalls() *cgnode {
 	r.String()      // (asserts that it doesn't crash)
 	root := a.makeCGNode(r, 0, nil)
 
+	// TODO(adonovan): make an ssa utility to construct an actual
+	// root function so we don't need to special-case site-less
+	// call edges.
+
 	// For each main package, call main.init(), main.main().
 	for _, mainPkg := range a.config.Mains {
 		main := mainPkg.Func("main")
@@ -1256,4 +1260,10 @@ func (a *analysis) generate() {
 		a.endObject(obj, nil, "<command-line args>")
 		a.addressOf(T, a.objectNode(nil, os.Var("Args")), obj)
 	}
+
+	// Discard generation state, to avoid confusion after node renumbering.
+	a.panicNode = 0
+	a.globalval = nil
+	a.localval = nil
+	a.localobj = nil
 }

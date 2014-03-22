@@ -12,7 +12,7 @@ import (
 // labels checks correct label use in body.
 func (check *checker) labels(body *ast.BlockStmt) {
 	// set of all labels in this body
-	all := NewScope(nil)
+	all := NewScope(nil, "label")
 
 	fwdJumps := check.blockBranches(all, nil, nil, body.List)
 
@@ -35,7 +35,7 @@ func (check *checker) labels(body *ast.BlockStmt) {
 	// spec: "It is illegal to define a label that is never used."
 	for _, obj := range all.elems {
 		if lbl := obj.(*Label); !lbl.used {
-			check.errorf(lbl.pos, "label %s declared but not used", lbl.name)
+			check.softErrorf(lbl.pos, "label %s declared but not used", lbl.name)
 		}
 	}
 }
@@ -129,41 +129,42 @@ func (check *checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 			}
 
 		case *ast.LabeledStmt:
-			// declare label
-			name := s.Label.Name
-			lbl := NewLabel(s.Label.Pos(), name)
-			if alt := all.Insert(lbl); alt != nil {
-				check.errorf(lbl.pos, "label %s already declared", name)
-				check.reportAltDecl(alt)
-				// ok to continue
-			} else {
-				b.insert(s)
-				check.recordObject(s.Label, lbl)
-			}
-			// resolve matching forward jumps and remove them from fwdJumps
-			i := 0
-			for _, jmp := range fwdJumps {
-				if jmp.Label.Name == name {
-					// match
-					lbl.used = true
-					check.recordObject(jmp.Label, lbl)
-					if jumpsOverVarDecl(jmp) {
-						check.errorf(
-							jmp.Label.Pos(),
-							"goto %s jumps over variable declaration at line %d",
-							name,
-							check.fset.Position(varDeclPos).Line,
-						)
-						// ok to continue
-					}
+			// declare non-blank label
+			if name := s.Label.Name; name != "_" {
+				lbl := NewLabel(s.Label.Pos(), name)
+				if alt := all.Insert(lbl); alt != nil {
+					check.softErrorf(lbl.pos, "label %s already declared", name)
+					check.reportAltDecl(alt)
+					// ok to continue
 				} else {
-					// no match - record new forward jump
-					fwdJumps[i] = jmp
-					i++
+					b.insert(s)
+					check.recordDef(s.Label, lbl)
 				}
+				// resolve matching forward jumps and remove them from fwdJumps
+				i := 0
+				for _, jmp := range fwdJumps {
+					if jmp.Label.Name == name {
+						// match
+						lbl.used = true
+						check.recordUse(jmp.Label, lbl)
+						if jumpsOverVarDecl(jmp) {
+							check.softErrorf(
+								jmp.Label.Pos(),
+								"goto %s jumps over variable declaration at line %d",
+								name,
+								check.fset.Position(varDeclPos).Line,
+							)
+							// ok to continue
+						}
+					} else {
+						// no match - record new forward jump
+						fwdJumps[i] = jmp
+						i++
+					}
+				}
+				fwdJumps = fwdJumps[:i]
+				lstmt = s
 			}
-			fwdJumps = fwdJumps[:i]
-			lstmt = s
 			stmtBranches(s.Stmt)
 
 		case *ast.BranchStmt:
@@ -220,7 +221,7 @@ func (check *checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 			// record label use
 			obj := all.Lookup(name)
 			obj.(*Label).used = true
-			check.recordObject(s.Label, obj)
+			check.recordUse(s.Label, obj)
 
 		case *ast.AssignStmt:
 			if s.Tok == token.DEFINE {

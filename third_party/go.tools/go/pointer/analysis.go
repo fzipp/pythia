@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"runtime/debug"
 
 	"github.com/fzipp/pythia/third_party/go.tools/go/callgraph"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
@@ -101,91 +102,6 @@ type node struct {
 	complex constraintset
 }
 
-type constraint interface {
-	String() string
-
-	// For a complex constraint, returns the nodeid of the pointer
-	// to which it is attached.
-	ptr() nodeid
-
-	// solve is called for complex constraints when the pts for
-	// the node to which they are attached has changed.
-	solve(a *analysis, n *node, delta nodeset)
-}
-
-// dst = &src
-// pts(dst) ⊇ {src}
-// A base constraint used to initialize the solver's pt sets
-type addrConstraint struct {
-	dst nodeid // (ptr)
-	src nodeid
-}
-
-// dst = src
-// A simple constraint represented directly as a copyTo graph edge.
-type copyConstraint struct {
-	dst nodeid
-	src nodeid // (ptr)
-}
-
-// dst = src[offset]
-// A complex constraint attached to src (the pointer)
-type loadConstraint struct {
-	offset uint32
-	dst    nodeid
-	src    nodeid // (ptr)
-}
-
-// dst[offset] = src
-// A complex constraint attached to dst (the pointer)
-type storeConstraint struct {
-	offset uint32
-	dst    nodeid // (ptr)
-	src    nodeid
-}
-
-// dst = &src.f  or  dst = &src[0]
-// A complex constraint attached to dst (the pointer)
-type offsetAddrConstraint struct {
-	offset uint32
-	dst    nodeid
-	src    nodeid // (ptr)
-}
-
-// dst = src.(typ)  where typ is an interface
-// A complex constraint attached to src (the interface).
-// No representation change: pts(dst) and pts(src) contains tagged objects.
-type typeFilterConstraint struct {
-	typ types.Type // an interface type
-	dst nodeid
-	src nodeid // (ptr)
-}
-
-// dst = src.(typ)  where typ is a concrete type
-// A complex constraint attached to src (the interface).
-//
-// If exact, only tagged objects identical to typ are untagged.
-// If !exact, tagged objects assignable to typ are untagged too.
-// The latter is needed for various reflect operators, e.g. Send.
-//
-// This entails a representation change:
-// pts(src) contains tagged objects,
-// pts(dst) contains their payloads.
-type untagConstraint struct {
-	typ   types.Type // a concrete type
-	dst   nodeid
-	src   nodeid // (ptr)
-	exact bool
-}
-
-// src.method(params...)
-// A complex constraint attached to iface.
-type invokeConstraint struct {
-	method *types.Func // the abstract method
-	iface  nodeid      // (ptr) the interface
-	params nodeid      // the first parameter in the params/results block
-}
-
 // An analysis instance holds the state of a single pointer analysis problem.
 type analysis struct {
 	config      *Config                     // the client's control/observer interface
@@ -199,7 +115,6 @@ type analysis struct {
 	cgnodes     []*cgnode                   // all cgnodes
 	genq        []*cgnode                   // queue of functions to generate constraints for
 	intrinsics  map[*ssa.Function]intrinsic // non-nil values are summaries for intrinsic fns
-	probes      map[*ssa.CallCommon]nodeid  // maps call to print() to argument variable
 	globalval   map[ssa.Value]nodeid        // node for each global ssa.Value
 	globalobj   map[ssa.Value]nodeid        // maps v to sole member of pts(v), if singleton
 	localval    map[ssa.Value]nodeid        // node for each local ssa.Value
@@ -286,7 +201,18 @@ func (a *analysis) computeTrackBits() {
 // Analyze runs the pointer analysis with the scope and options
 // specified by config, and returns the (synthetic) root of the callgraph.
 //
-func Analyze(config *Config) *Result {
+// Pointer analysis of a transitively closed well-typed program should
+// always succeed.  An error can occur only due to an internal bug.
+//
+func Analyze(config *Config) (result *Result, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("internal error in pointer analysis: %v (please report this bug)", p)
+			fmt.Fprintln(os.Stderr, "Internal panic in pointer analysis:")
+			debug.PrintStack()
+		}
+	}()
+
 	a := &analysis{
 		config:      config,
 		log:         config.Log,
@@ -318,7 +244,7 @@ func Analyze(config *Config) *Result {
 		// (This only checks that the package scope is complete,
 		// not that func bodies exist, but it's a good signal.)
 		if !pkg.Object.Complete() {
-			panic(fmt.Sprintf(`pointer analysis requires a complete program yet package %q was incomplete (set loader.Config.SourceImports during loading)`, pkg.Object.Path()))
+			return nil, fmt.Errorf(`pointer analysis requires a complete program yet package %q was incomplete (set loader.Config.SourceImports during loading)`, pkg.Object.Path())
 		}
 	}
 
@@ -362,18 +288,9 @@ func Analyze(config *Config) *Result {
 		fmt.Fprintf(a.log, "# nodes:\t%d\n", len(a.nodes))
 	}
 
-	//a.optimize()
+	a.optimize()
 
 	a.solve()
-
-	if a.log != nil {
-		// Dump solution.
-		for i, n := range a.nodes {
-			if n.pts != nil {
-				fmt.Fprintf(a.log, "pts(n%d) = %s : %s\n", i, n.pts, n.typ)
-			}
-		}
-	}
 
 	// Create callgraph.Nodes in deterministic order.
 	if cg := a.result.CallGraph; cg != nil {
@@ -391,7 +308,7 @@ func Analyze(config *Config) *Result {
 		}
 	}
 
-	return a.result
+	return a.result, nil
 }
 
 // callEdge is called for each edge in the callgraph.

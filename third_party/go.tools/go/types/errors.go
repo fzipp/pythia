@@ -27,16 +27,21 @@ func (check *checker) sprintf(format string, args ...interface{}) string {
 	for i, arg := range args {
 		switch a := arg.(type) {
 		case nil:
-			args[i] = "<nil>"
+			arg = "<nil>"
 		case operand:
 			panic("internal error: should always pass *operand")
+		case *operand:
+			arg = operandString(check.pkg, a)
 		case token.Pos:
-			args[i] = check.fset.Position(a).String()
+			arg = check.fset.Position(a).String()
 		case ast.Expr:
-			args[i] = ExprString(a)
+			arg = ExprString(a)
+		case Object:
+			arg = ObjectString(check.pkg, a)
 		case Type:
-			args[i] = TypeString(check.pkg, a)
+			arg = TypeString(check.pkg, a)
 		}
+		args[i] = arg
 	}
 	return fmt.Sprintf(format, args...)
 }
@@ -54,8 +59,8 @@ func (check *checker) dump(format string, args ...interface{}) {
 	fmt.Println(check.sprintf(format, args...))
 }
 
-func (check *checker) err(pos token.Pos, msg string) {
-	err := Error{check.fset, pos, msg}
+func (check *checker) err(pos token.Pos, msg string, soft bool) {
+	err := Error{check.fset, pos, msg, soft}
 	if check.firstErr == nil {
 		check.firstErr = err
 	}
@@ -66,8 +71,16 @@ func (check *checker) err(pos token.Pos, msg string) {
 	f(err)
 }
 
+func (check *checker) error(pos token.Pos, msg string) {
+	check.err(pos, msg, false)
+}
+
 func (check *checker) errorf(pos token.Pos, format string, args ...interface{}) {
-	check.err(pos, check.sprintf(format, args...))
+	check.err(pos, check.sprintf(format, args...), false)
+}
+
+func (check *checker) softErrorf(pos token.Pos, format string, args ...interface{}) {
+	check.err(pos, check.sprintf(format, args...), true)
 }
 
 func (check *checker) invalidAST(pos token.Pos, format string, args ...interface{}) {

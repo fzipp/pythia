@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+
+	"github.com/fzipp/pythia/third_party/go.tools/go/exact"
 )
 
 func (check *checker) funcBody(decl *declInfo, name string, sig *Signature, body *ast.BlockStmt) {
@@ -41,7 +43,7 @@ func (check *checker) funcBody(decl *declInfo, name string, sig *Signature, body
 	}
 
 	if sig.results.Len() > 0 && !check.isTerminating(body, "") {
-		check.errorf(body.Rbrace, "missing return")
+		check.error(body.Rbrace, "missing return")
 	}
 
 	// spec: "Implementation restriction: A compiler may make it illegal to
@@ -54,7 +56,7 @@ func (check *checker) funcBody(decl *declInfo, name string, sig *Signature, body
 func (check *checker) usage(scope *Scope) {
 	for _, obj := range scope.elems {
 		if v, _ := obj.(*Var); v != nil && !v.used {
-			check.errorf(v.pos, "%s declared but not used", v.name)
+			check.softErrorf(v.pos, "%s declared but not used", v.name)
 		}
 	}
 	for _, scope := range scope.children {
@@ -116,8 +118,8 @@ func (check *checker) multipleDefaults(list []ast.Stmt) {
 	}
 }
 
-func (check *checker) openScope(s ast.Stmt) {
-	scope := NewScope(check.scope)
+func (check *checker) openScope(s ast.Stmt, comment string) {
+	scope := NewScope(check.scope, comment)
 	check.recordScope(s, scope)
 	check.scope = scope
 }
@@ -184,8 +186,8 @@ L:
 		for t, pos := range seen {
 			if T == nil && t == nil || T != nil && t != nil && Identical(T, t) {
 				// talk about "case" rather than "type" because of nil case
-				check.errorf(e.Pos(), "duplicate case in type switch")
-				check.errorf(pos, "previous case %s", T)
+				check.error(e.Pos(), "duplicate case in type switch")
+				check.errorf(pos, "\tprevious case %s", T) // secondary error, \t indented
 				continue L
 			}
 		}
@@ -318,24 +320,28 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		check.suspendedCall("defer", s.Call)
 
 	case *ast.ReturnStmt:
-		sig := check.sig
-		if n := sig.results.Len(); n > 0 {
-			// determine if the function has named results
-			named := false
-			lhs := make([]*Var, n)
-			for i, res := range sig.results.vars {
-				if res.name != "" {
-					// a blank (_) result parameter is a named result
-					named = true
+		res := check.sig.results
+		if res.Len() > 0 {
+			// function returns results
+			// (if one, say the first, result parameter is named, all of them are named)
+			if len(s.Results) == 0 && res.vars[0].name != "" {
+				// spec: "Implementation restriction: A compiler may disallow an empty expression
+				// list in a "return" statement if a different entity (constant, type, or variable)
+				// with the same name as a result parameter is in scope at the place of the return."
+				for _, obj := range res.vars {
+					if alt := check.scope.LookupParent(obj.name); alt != nil && alt != obj {
+						check.errorf(s.Pos(), "result parameter %s not in scope at return", obj.name)
+						check.errorf(alt.Pos(), "\tinner declaration of %s", obj)
+						// ok to continue
+					}
 				}
-				lhs[i] = res
-			}
-			if len(s.Results) > 0 || !named {
-				check.initVars(lhs, s.Results, s.Return)
-				return
+			} else {
+				// return has results or result parameters are unnamed
+				check.initVars(res.vars, s.Results, s.Return)
 			}
 		} else if len(s.Results) > 0 {
-			check.errorf(s.Pos(), "no result values expected")
+			check.error(s.Results[0].Pos(), "no result values expected")
+			check.use(s.Results...)
 		}
 
 	case *ast.BranchStmt:
@@ -346,35 +352,35 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		switch s.Tok {
 		case token.BREAK:
 			if ctxt&inBreakable == 0 {
-				check.errorf(s.Pos(), "break not in for, switch, or select statement")
+				check.error(s.Pos(), "break not in for, switch, or select statement")
 			}
 		case token.CONTINUE:
 			if ctxt&inContinuable == 0 {
-				check.errorf(s.Pos(), "continue not in for statement")
+				check.error(s.Pos(), "continue not in for statement")
 			}
 		case token.FALLTHROUGH:
 			if ctxt&fallthroughOk == 0 {
-				check.errorf(s.Pos(), "fallthrough statement out of place")
+				check.error(s.Pos(), "fallthrough statement out of place")
 			}
 		default:
 			check.invalidAST(s.Pos(), "branch statement: %s", s.Tok)
 		}
 
 	case *ast.BlockStmt:
-		check.openScope(s)
+		check.openScope(s, "block")
 		defer check.closeScope()
 
 		check.stmtList(inner, s.List)
 
 	case *ast.IfStmt:
-		check.openScope(s)
+		check.openScope(s, "if")
 		defer check.closeScope()
 
 		check.initStmt(s.Init)
 		var x operand
 		check.expr(&x, s.Cond)
 		if x.mode != invalid && !isBoolean(x.typ) {
-			check.errorf(s.Cond.Pos(), "non-boolean condition in if statement")
+			check.error(s.Cond.Pos(), "non-boolean condition in if statement")
 		}
 		check.stmt(inner, s.Body)
 		if s.Else != nil {
@@ -383,19 +389,21 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 
 	case *ast.SwitchStmt:
 		inner |= inBreakable
-		check.openScope(s)
+		check.openScope(s, "switch")
 		defer check.closeScope()
 
 		check.initStmt(s.Init)
 		var x operand
-		tag := s.Tag
-		if tag == nil {
-			// use fake true tag value and position it at the opening { of the switch
-			ident := &ast.Ident{NamePos: s.Body.Lbrace, Name: "true"}
-			check.recordObject(ident, Universe.Lookup("true"))
-			tag = ident
+		if s.Tag != nil {
+			check.expr(&x, s.Tag)
+		} else {
+			// spec: "A missing switch expression is
+			// equivalent to the boolean value true."
+			x.mode = constant
+			x.typ = Typ[Bool]
+			x.val = exact.MakeBool(true)
+			x.expr = &ast.Ident{NamePos: s.Body.Lbrace, Name: "true"}
 		}
-		check.expr(&x, tag)
 
 		check.multipleDefaults(s.Body.List)
 
@@ -408,7 +416,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			if x.mode != invalid {
 				check.caseValues(x, clause.List)
 			}
-			check.openScope(clause)
+			check.openScope(clause, "case")
 			inner := inner
 			if i+1 < len(s.Body.List) {
 				inner |= fallthroughOk
@@ -419,7 +427,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 
 	case *ast.TypeSwitchStmt:
 		inner |= inBreakable
-		check.openScope(s)
+		check.openScope(s, "type switch")
 		defer check.closeScope()
 
 		check.initStmt(s.Init)
@@ -448,7 +456,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 				check.invalidAST(s.Pos(), "incorrect form of type switch guard")
 				return
 			}
-			check.recordObject(lhs, nil) // lhs variable is implicitly declared in each cause clause
+			check.recordDef(lhs, nil) // lhs variable is implicitly declared in each cause clause
 
 			rhs = guard.Rhs[0]
 
@@ -486,7 +494,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			}
 			// Check each type in this type switch case.
 			T := check.caseTypes(&x, xtyp, clause.List, seen)
-			check.openScope(clause)
+			check.openScope(clause, "case")
 			// If lhs exists, declare a corresponding variable in the case-local scope.
 			if lhs != nil {
 				// spec: "The TypeSwitchGuard may include a short variable declaration.
@@ -519,7 +527,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 				v.used = true // avoid usage error when checking entire function
 			}
 			if !used {
-				check.errorf(lhs.Pos(), "%s declared but not used", lhs.Name)
+				check.softErrorf(lhs.Pos(), "%s declared but not used", lhs.Name)
 			}
 		}
 
@@ -556,11 +564,11 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			}
 
 			if !valid {
-				check.errorf(clause.Comm.Pos(), "select case must be send or receive (possibly with assignment)")
+				check.error(clause.Comm.Pos(), "select case must be send or receive (possibly with assignment)")
 				continue
 			}
 
-			check.openScope(s)
+			check.openScope(s, "case")
 			defer check.closeScope()
 			if clause.Comm != nil {
 				check.stmt(inner, clause.Comm)
@@ -570,7 +578,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 
 	case *ast.ForStmt:
 		inner |= inBreakable | inContinuable
-		check.openScope(s)
+		check.openScope(s, "for")
 		defer check.closeScope()
 
 		check.initStmt(s.Init)
@@ -578,7 +586,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			var x operand
 			check.expr(&x, s.Cond)
 			if x.mode != invalid && !isBoolean(x.typ) {
-				check.errorf(s.Cond.Pos(), "non-boolean condition in for statement")
+				check.error(s.Cond.Pos(), "non-boolean condition in for statement")
 			}
 		}
 		check.initStmt(s.Post)
@@ -586,7 +594,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 
 	case *ast.RangeStmt:
 		inner |= inBreakable | inContinuable
-		check.openScope(s)
+		check.openScope(s, "for")
 		defer check.closeScope()
 
 		// check expression to iterate over
@@ -673,7 +681,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 					// declare new variable
 					name := ident.Name
 					obj = NewVar(ident.Pos(), check.pkg, name, nil)
-					check.recordObject(ident, obj)
+					check.recordDef(ident, obj)
 					// _ variables don't count as new variables
 					if name != "_" {
 						vars = append(vars, obj)
@@ -687,7 +695,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 				x.mode = value
 				x.expr = lhs // we don't have a better rhs expression to use here
 				x.typ = rhs[i]
-				check.initVar(obj, &x)
+				check.initVar(obj, &x, false)
 			}
 
 			// declare variables
@@ -696,7 +704,7 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 					check.declare(check.scope, nil, obj) // recordObject already called
 				}
 			} else {
-				check.errorf(s.TokPos, "no new variables on left side of :=")
+				check.error(s.TokPos, "no new variables on left side of :=")
 			}
 		} else {
 			// ordinary assignment
@@ -714,6 +722,6 @@ func (check *checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		check.stmt(inner, s.Body)
 
 	default:
-		check.errorf(s.Pos(), "invalid statement")
+		check.error(s.Pos(), "invalid statement")
 	}
 }

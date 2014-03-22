@@ -5,13 +5,14 @@
 package loader_test
 
 import (
+	"bytes"
 	"fmt"
-	"go/ast"
 	"go/build"
-	"go/token"
+	"io"
+	"os"
 	"sort"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
 )
@@ -56,8 +57,8 @@ func TestLoadFromArgs(t *testing.T) {
 	for _, info := range prog.Created {
 		pkgnames = append(pkgnames, info.Pkg.Path())
 	}
-	// Only the first import path (currently) contributes tests.
-	if got, want := fmt.Sprint(pkgnames), "[fmt_test]"; got != want {
+	// All import paths may contribute tests.
+	if got, want := fmt.Sprint(pkgnames), "[fmt_test errors_test]"; got != want {
 		t.Errorf("Created: got %s, want %s", got, want)
 	}
 
@@ -67,7 +68,7 @@ func TestLoadFromArgs(t *testing.T) {
 		pkgnames = append(pkgnames, path)
 	}
 	sort.Strings(pkgnames)
-	// Only the first import path (currently) contributes tests.
+	// All import paths may contribute tests.
 	if got, want := fmt.Sprint(pkgnames), "[errors fmt]"; got != want {
 		t.Errorf("Loaded: got %s, want %s", got, want)
 	}
@@ -108,52 +109,61 @@ func TestLoadFromArgsSource(t *testing.T) {
 	}
 }
 
+type nopCloser struct{ *bytes.Buffer }
+
+func (nopCloser) Close() error { return nil }
+
+type fakeFileInfo struct{}
+
+func (fakeFileInfo) Name() string       { return "x.go" }
+func (fakeFileInfo) Sys() interface{}   { return nil }
+func (fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (fakeFileInfo) IsDir() bool        { return false }
+func (fakeFileInfo) Size() int64        { return 0 }
+func (fakeFileInfo) Mode() os.FileMode  { return 0644 }
+
+var justXgo = [1]os.FileInfo{fakeFileInfo{}} // ["x.go"]
+
 func TestTransitivelyErrorFreeFlag(t *testing.T) {
 	conf := loader.Config{
 		AllowTypeErrors: true,
 		SourceImports:   true,
 	}
-	conf.Import("a")
 
-	// Fake the following packages:
+	// Create an minimal custom build.Context
+	// that fakes the following packages:
 	//
 	// a --> b --> c!   c has a TypeError
 	//   \              d and e are transitively error free.
 	//    e --> d
-
-	// Temporary hack until we expose a principled PackageLocator.
-	pfn := loader.PackageLocatorFunc()
-	saved := *pfn
-	*pfn = func(_ *build.Context, fset *token.FileSet, path string, which string) (files []*ast.File, err error) {
-		if !strings.Contains(which, "g") {
-			return nil, nil // no test/xtest files
-		}
-		var contents string
-		switch path {
-		case "a":
-			contents = `package a; import (_ "b"; _ "e")`
-		case "b":
-			contents = `package b; import _ "c"`
-		case "c":
-			contents = `package c; func f() { _ = int(false) }` // type error within function body
-		case "d":
-			contents = `package d;`
-		case "e":
-			contents = `package e; import _ "d"`
-		default:
-			return nil, fmt.Errorf("no such package %q", path)
-		}
-		f, err := conf.ParseFile(fmt.Sprintf("%s/x.go", path), contents, 0)
-		return []*ast.File{f}, err
+	//
+	// Each package [a-e] consists of one file, x.go.
+	pkgs := map[string]string{
+		"a": `package a; import (_ "b"; _ "e")`,
+		"b": `package b; import _ "c"`,
+		"c": `package c; func f() { _ = int(false) }`, // type error within function body
+		"d": `package d;`,
+		"e": `package e; import _ "d"`,
 	}
-	defer func() { *pfn = saved }()
+	ctxt := build.Default // copy
+	ctxt.GOROOT = "/go"
+	ctxt.GOPATH = ""
+	ctxt.IsDir = func(path string) bool { return true }
+	ctxt.ReadDir = func(dir string) ([]os.FileInfo, error) { return justXgo[:], nil }
+	ctxt.OpenFile = func(path string) (io.ReadCloser, error) {
+		path = path[len("/go/src/pkg/"):]
+		return nopCloser{bytes.NewBufferString(pkgs[path[0:1]])}, nil
+	}
+	conf.Build = &ctxt
+
+	conf.Import("a")
 
 	prog, err := conf.Load()
 	if err != nil {
 		t.Errorf("Load failed: %s", err)
 	}
 	if prog == nil {
-		t.Fatalf("Load returnd nil *Program")
+		t.Fatalf("Load returned nil *Program")
 	}
 
 	for pkg, info := range prog.AllPackages {

@@ -2,11 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// TODO(gri) This file needs to be expanded significantly.
-
 package types_test
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -89,6 +88,28 @@ func TestValuesInfo(t *testing.T) {
 		{`package d1; var _ = []byte(string("foo"))`, `"foo"`, `string`, `"foo"`},
 		{`package d2; var _ = []byte(string("foo"))`, `string("foo")`, `string`, `"foo"`},
 		{`package d3; type T []byte; var _ = T("foo")`, `"foo"`, `string`, `"foo"`},
+
+		{`package e0; const _ = float32( 1e-200)`, `float32(1e-200)`, `float32`, `0`},
+		{`package e1; const _ = float32(-1e-200)`, `float32(-1e-200)`, `float32`, `0`},
+		{`package e2; const _ = float64( 1e-2000)`, `float64(1e-2000)`, `float64`, `0`},
+		{`package e3; const _ = float64(-1e-2000)`, `float64(-1e-2000)`, `float64`, `0`},
+		{`package e4; const _ = complex64( 1e-200)`, `complex64(1e-200)`, `complex64`, `0`},
+		{`package e5; const _ = complex64(-1e-200)`, `complex64(-1e-200)`, `complex64`, `0`},
+		{`package e6; const _ = complex128( 1e-2000)`, `complex128(1e-2000)`, `complex128`, `0`},
+		{`package e7; const _ = complex128(-1e-2000)`, `complex128(-1e-2000)`, `complex128`, `0`},
+
+		{`package f0 ; var _ float32 =  1e-200`, `1e-200`, `float32`, `0`},
+		{`package f1 ; var _ float32 = -1e-200`, `-1e-200`, `float32`, `0`},
+		{`package f2a; var _ float64 =  1e-2000`, `1e-2000`, `float64`, `0`},
+		{`package f3a; var _ float64 = -1e-2000`, `-1e-2000`, `float64`, `0`},
+		{`package f2b; var _         =  1e-2000`, `1e-2000`, `float64`, `0`},
+		{`package f3b; var _         = -1e-2000`, `-1e-2000`, `float64`, `0`},
+		{`package f4 ; var _ complex64  =  1e-200 `, `1e-200`, `complex64`, `0`},
+		{`package f5 ; var _ complex64  = -1e-200 `, `-1e-200`, `complex64`, `0`},
+		{`package f6a; var _ complex128 =  1e-2000i`, `1e-2000i`, `complex128`, `0`},
+		{`package f7a; var _ complex128 = -1e-2000i`, `-1e-2000i`, `complex128`, `0`},
+		{`package f6b; var _            =  1e-2000i`, `1e-2000i`, `complex128`, `0`},
+		{`package f7b; var _            = -1e-2000i`, `-1e-2000i`, `complex128`, `0`},
 	}
 
 	for _, test := range tests {
@@ -384,6 +405,9 @@ func TestInitOrderInfo(t *testing.T) {
 		{`package p9; type T struct{}; func (T) m() int { _ = y; return 0 }; var x, y = T.m, 1`, []string{
 			"y = 1", "x = T.m",
 		}},
+		{`package p10; var (d = c + b; a = 0; b = 0; c = 0)`, []string{
+			"b = 0", "c = 0", "d = c + b", "a = 0",
+		}},
 		// test case for issue 7131
 		{`package main
 
@@ -418,6 +442,30 @@ func TestInitOrderInfo(t *testing.T) {
 				t.Errorf("package %s, init %d: got %s; want %s", name, i, got, want)
 				continue
 			}
+		}
+	}
+}
+
+func TestFiles(t *testing.T) {
+	var sources = []string{
+		"package p; type T struct{}; func (T) m1() {}",
+		"package p; func (T) m2() {}; var _ interface{ m1(); m2() } = T{}",
+		"package p; func (T) m3() {}; var _ interface{ m1(); m2(); m3() } = T{}",
+	}
+
+	var conf Config
+	fset := token.NewFileSet()
+	pkg := NewPackage("p", "p")
+	check := NewChecker(&conf, fset, pkg, nil)
+
+	for i, src := range sources {
+		filename := fmt.Sprintf("sources%d", i)
+		f, err := parser.ParseFile(fset, filename, src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := check.Files([]*ast.File{f}); err != nil {
+			t.Error(err)
 		}
 	}
 }

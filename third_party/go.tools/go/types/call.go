@@ -16,7 +16,7 @@ func (check *checker) call(x *operand, e *ast.CallExpr) exprKind {
 
 	switch x.mode {
 	case invalid:
-		check.use(e.Args)
+		check.use(e.Args...)
 		x.mode = invalid
 		x.expr = e
 		return statement
@@ -32,9 +32,6 @@ func (check *checker) call(x *operand, e *ast.CallExpr) exprKind {
 			check.expr(x, e.Args[0])
 			if x.mode != invalid {
 				check.conversion(x, T)
-				if x.mode != invalid {
-					check.markAsConversion(e) // for cap/len checking
-				}
 			}
 		default:
 			check.errorf(e.Args[n-1].Pos(), "too many arguments in conversion to %s", T)
@@ -48,6 +45,10 @@ func (check *checker) call(x *operand, e *ast.CallExpr) exprKind {
 			x.mode = invalid
 		}
 		x.expr = e
+		// a non-constant result implies a function call
+		if x.mode != invalid && x.mode != constant {
+			check.hasCallOrRecv = true
+		}
 		return predeclaredFuncs[id].kind
 
 	default:
@@ -75,17 +76,18 @@ func (check *checker) call(x *operand, e *ast.CallExpr) exprKind {
 			x.typ = sig.results
 		}
 		x.expr = e
+		check.hasCallOrRecv = true
 
 		return statement
 	}
 }
 
-// use type-checks each list element.
-// Useful to make sure a list of expressions is evaluated
+// use type-checks each argument.
+// Useful to make sure expressions are evaluated
 // (and variables are "used") in the presence of other errors.
-func (check *checker) use(list []ast.Expr) {
+func (check *checker) use(arg ...ast.Expr) {
 	var x operand
-	for _, e := range list {
+	for _, e := range arg {
 		check.rawExpr(&x, e, nil)
 	}
 }
@@ -252,7 +254,7 @@ func (check *checker) selector(x *operand, e *ast.SelectorExpr) {
 	// selector expressions.
 	if ident, ok := e.X.(*ast.Ident); ok {
 		if pkg, _ := check.scope.LookupParent(ident.Name).(*PkgName); pkg != nil {
-			check.recordObject(ident, pkg)
+			check.recordUse(ident, pkg)
 			pkg.used = true
 			exp := pkg.pkg.scope.Lookup(sel)
 			if exp == nil {
@@ -267,7 +269,6 @@ func (check *checker) selector(x *operand, e *ast.SelectorExpr) {
 			}
 			check.recordSelection(e, PackageObj, nil, exp, nil, false)
 			// Simplified version of the code for *ast.Idents:
-			// - imported packages use types.Scope and types.Objects
 			// - imported objects are always fully initialized
 			switch exp := exp.(type) {
 			case *Const:

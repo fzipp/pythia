@@ -10,7 +10,7 @@
 //
 // Name resolution maps each identifier (ast.Ident) in the program to the
 // language object (Object) it denotes.
-// Use Info.Objects, Info.Implicits for the results of name resolution.
+// Use Info.{Defs,Uses,Implicits} for the results of name resolution.
 //
 // Constant folding computes the exact constant value (exact.Value) for
 // every expression (ast.Expr) that is a compile-time constant.
@@ -46,12 +46,15 @@ func Check(path string, fset *token.FileSet, files []*ast.File) (*Package, error
 	return pkg, nil
 }
 
-// An Error describes a type-checking error;
-// it implements the error interface.
+// An Error describes a type-checking error; it implements the error interface.
+// A "soft" error is an error that still permits a valid interpretation of a
+// package (such as "unused variable"); "hard" errors may lead to unpredictable
+// behavior if ignored.
 type Error struct {
 	Fset *token.FileSet // file set for interpretation of Pos
 	Pos  token.Pos      // error position
 	Msg  string         // error message
+	Soft bool           // if set, error is "soft"
 }
 
 // Error returns an error string formatted as follows:
@@ -130,8 +133,7 @@ type TypeAndValue struct {
 type Info struct {
 	// Types maps expressions to their types, and for constant
 	// expressions, their values.
-	// Identifiers on the lhs of declarations are collected in
-	// Objects, not Types.
+	// Identifiers are collected in Defs and Uses, not Types.
 	//
 	// For an expression denoting a predeclared built-in function
 	// the recorded signature is call-site specific. If the call
@@ -139,13 +141,24 @@ type Info struct {
 	// specific signature. Otherwise, the recorded type is invalid.
 	Types map[ast.Expr]TypeAndValue
 
-	// Objects maps identifiers to their corresponding objects (including
+	// Defs maps identifiers to the objects they define (including
 	// package names, dots "." of dot-imports, and blank "_" identifiers).
 	// For identifiers that do not denote objects (e.g., the package name
 	// in package clauses, blank identifiers on the lhs of assignments, or
 	// symbolic variables t in t := x.(type) of type switch headers), the
 	// corresponding objects are nil.
-	Objects map[*ast.Ident]Object
+	//
+	// For an anonymous field, Defs returns the field *Var it defines.
+	//
+	// Invariant: Defs[id] == nil || Defs[id].Pos() == id.Pos()
+	Defs map[*ast.Ident]Object
+
+	// Uses maps identifiers to the objects they denote.
+	//
+	// For an anonymous field, Uses returns the *TypeName it denotes.
+	//
+	// Invariant: Uses[id].Pos() != id.Pos()
+	Uses map[*ast.Ident]Object
 
 	// Implicits maps nodes to their implicitly declared objects, if any.
 	// The following node and object types may appear:
@@ -161,10 +174,15 @@ type Info struct {
 	// Selections maps selector expressions to their corresponding selections.
 	Selections map[*ast.SelectorExpr]*Selection
 
-	// Scopes maps ast.Nodes to the scopes they define. Note that package scopes
-	// are not associated with a specific node but with all files belonging to a
-	// package. Thus, the package scope can be found in the type-checked package
-	// object.
+	// Scopes maps ast.Nodes to the scopes they define. Package scopes are not
+	// associated with a specific node but with all files belonging to a package.
+	// Thus, the package scope can be found in the type-checked Package object.
+	// Scopes nest, with the Universe scope being the outermost scope, enclosing
+	// the package scope, which contains (one or more) files scopes, which enclose
+	// function scopes which in turn enclose statement and function literal scopes.
+	// Note that even though package-level functions are declared in the package
+	// scope, the function scopes are embedded in the file scope of the file
+	// containing the function declaration.
 	//
 	// The following node types may appear in Scopes:
 	//
@@ -220,7 +238,7 @@ func (init *Initializer) String() string {
 // The clean path must not be empty or dot (".").
 func (conf *Config) Check(path string, fset *token.FileSet, files []*ast.File, info *Info) (*Package, error) {
 	pkg := NewPackage(path, "")
-	return pkg, newChecker(conf, fset, pkg, info).files(files)
+	return pkg, NewChecker(conf, fset, pkg, info).Files(files)
 }
 
 // AssertableTo reports whether a value of type V can be asserted to have type T.

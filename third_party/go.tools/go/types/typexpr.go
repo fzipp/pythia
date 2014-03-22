@@ -32,7 +32,7 @@ func (check *checker) ident(x *operand, e *ast.Ident, def *Named, path []*TypeNa
 		}
 		return
 	}
-	check.recordObject(e, obj)
+	check.recordUse(e, obj)
 
 	check.objDecl(obj, def, path)
 	typ := obj.Type()
@@ -141,7 +141,7 @@ func (check *checker) typ(e ast.Expr) Type {
 
 // funcType type-checks a function or method type and returns its signature.
 func (check *checker) funcType(sig *Signature, recv *ast.FieldList, ftyp *ast.FuncType) *Signature {
-	scope := NewScope(check.scope)
+	scope := NewScope(check.scope, "function")
 	check.recordScope(ftyp, scope)
 
 	recv_, _ := check.collectParams(scope, recv, false)
@@ -382,6 +382,7 @@ func (check *checker) collectParams(scope *Scope, list *ast.FieldList, variadicO
 		return
 	}
 
+	var named, anonymous bool
 	for i, field := range list.List {
 		ftype := field.Type
 		if t, _ := ftype.(*ast.Ellipsis); t != nil {
@@ -399,16 +400,27 @@ func (check *checker) collectParams(scope *Scope, list *ast.FieldList, variadicO
 		if len(field.Names) > 0 {
 			// named parameter
 			for _, name := range field.Names {
+				if name.Name == "" {
+					check.invalidAST(name.Pos(), "anonymous parameter")
+					// ok to continue
+				}
 				par := NewParam(name.Pos(), check.pkg, name.Name, typ)
 				check.declare(scope, name, par)
 				params = append(params, par)
 			}
+			named = true
 		} else {
 			// anonymous parameter
 			par := NewParam(ftype.Pos(), check.pkg, "", typ)
 			check.recordImplicit(field, par)
 			params = append(params, par)
+			anonymous = true
 		}
+	}
+
+	if named && anonymous {
+		check.invalidAST(list.Pos(), "list contains both named and anonymous parameters")
+		// ok to continue
 	}
 
 	// For a variadic function, change the last parameter's type from T to []T.
@@ -480,7 +492,7 @@ func (check *checker) interfaceType(iface *Interface, ityp *ast.InterfaceType, d
 				iface.methods = append(iface.methods, m)
 				iface.allMethods = append(iface.allMethods, m)
 				signatures = append(signatures, f.Type)
-				check.recordObject(name, m)
+				check.recordDef(name, m)
 			}
 		} else {
 			// embedded type
@@ -604,7 +616,8 @@ func (check *checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 	// current field typ and tag
 	var typ Type
 	var tag string
-	add := func(field *ast.Field, ident *ast.Ident, name string, anonymous bool, pos token.Pos) {
+	// anonymous != nil indicates an anonymous field.
+	add := func(field *ast.Field, ident *ast.Ident, anonymous *TypeName, pos token.Pos) {
 		if tag != "" && tags == nil {
 			tags = make([]string, len(fields))
 		}
@@ -612,13 +625,15 @@ func (check *checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 			tags = append(tags, tag)
 		}
 
-		fld := NewField(pos, check.pkg, name, typ, anonymous)
+		name := ident.Name
+		fld := NewField(pos, check.pkg, name, typ, anonymous != nil)
 		// spec: "Within a struct, non-blank field names must be unique."
 		if name == "_" || check.declareInSet(&fset, pos, fld) {
 			fields = append(fields, fld)
-			if ident != nil {
-				check.recordObject(ident, fld)
-			}
+			check.recordDef(ident, fld)
+		}
+		if anonymous != nil {
+			check.recordUse(ident, anonymous)
 		}
 	}
 
@@ -628,10 +643,11 @@ func (check *checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 		if len(f.Names) > 0 {
 			// named fields
 			for _, name := range f.Names {
-				add(f, name, name.Name, false, name.Pos())
+				add(f, name, nil, name.Pos())
 			}
 		} else {
 			// anonymous field
+			name := anonymousFieldIdent(f.Type)
 			pos := f.Type.Pos()
 			t, isPtr := deref(typ)
 			switch t := t.(type) {
@@ -645,7 +661,7 @@ func (check *checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 					check.errorf(pos, "anonymous field type cannot be unsafe.Pointer")
 					continue
 				}
-				add(f, nil, t.name, true, pos)
+				add(f, name, Universe.Lookup(t.name).(*TypeName), pos)
 
 			case *Named:
 				// spec: "An embedded type must be specified as a type name
@@ -667,7 +683,7 @@ func (check *checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 						continue
 					}
 				}
-				add(f, nil, t.obj.name, true, pos)
+				add(f, name, t.obj, pos)
 
 			default:
 				check.invalidAST(pos, "anonymous field type %s must be named", typ)
@@ -677,4 +693,16 @@ func (check *checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 
 	styp.fields = fields
 	styp.tags = tags
+}
+
+func anonymousFieldIdent(e ast.Expr) *ast.Ident {
+	switch e := e.(type) {
+	case *ast.Ident:
+		return e
+	case *ast.StarExpr:
+		return anonymousFieldIdent(e.X)
+	case *ast.SelectorExpr:
+		return e.Sel
+	}
+	return nil // invalid anonymous field
 }

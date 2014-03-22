@@ -7,6 +7,7 @@
 package types
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 
@@ -26,36 +27,47 @@ type exprInfo struct {
 	val   exact.Value // constant value; or nil (if not a constant)
 }
 
+// funcInfo stores the information required for type-checking a function.
+type funcInfo struct {
+	name string    // for debugging/tracing only
+	decl *declInfo // for cycle detection
+	sig  *Signature
+	body *ast.BlockStmt
+}
+
 // A context represents the context within which an object is type-checked.
 type context struct {
-	decl     *declInfo   // package-level declaration whose init expression/function body is checked
-	scope    *Scope      // top-most scope for lookups
-	iota     exact.Value // value of iota in a constant declaration; nil otherwise
-	sig      *Signature  // function signature if inside a function; nil otherwise
-	hasLabel bool        // set if a function makes use of labels (only ~1% of functions); unused outside functions
+	decl          *declInfo   // package-level declaration whose init expression/function body is checked
+	scope         *Scope      // top-most scope for lookups
+	iota          exact.Value // value of iota in a constant declaration; nil otherwise
+	sig           *Signature  // function signature if inside a function; nil otherwise
+	hasLabel      bool        // set if a function makes use of labels (only ~1% of functions); unused outside functions
+	hasCallOrRecv bool        // set if an expression contains a function call or channel receive operation
 }
 
 // A checker maintains the state of the type checker.
 // It must be created with newChecker.
 type checker struct {
 	// package information
-	// (set by newChecker)
+	// (initialized by NewChecker, valid for the life-time of checker)
 	conf *Config
 	fset *token.FileSet
 	pkg  *Package
 	*Info
+	objMap map[Object]*declInfo // maps package-level object to declaration info
 
-	// information collected during type-checking of an entire package
-	// (maps are allocated lazily)
-	firstErr    error                  // first error encountered
-	methods     map[string][]*Func     // maps type names to associated methods
-	conversions map[*ast.CallExpr]bool // set of type-checked conversions (to distinguish from calls)
-	untyped     map[ast.Expr]exprInfo  // map of expressions without final type
-	funcs       []funcInfo             // list of functions/methods with correct signatures and non-empty bodies
-	delayed     []func()               // delayed checks that require fully setup types
+	// information collected during type-checking of a set of package files
+	// (initialized by Files, valid only for the duration of check.Files;
+	// maps and lists are allocated on demand)
+	files      []*ast.File              // package files
+	fileScopes []*Scope                 // file scope for each file
+	dotImports []map[*Package]token.Pos // positions of dot-imports for each file
 
-	objMap  map[Object]*declInfo // if set we are in the package-level declaration phase (otherwise all objects seen must be declared)
-	initMap map[Object]*declInfo // map of variables/functions with init expressions/bodies
+	firstErr error                 // first error encountered
+	methods  map[string][]*Func    // maps type names to associated methods
+	untyped  map[ast.Expr]exprInfo // map of expressions without final type
+	funcs    []funcInfo            // list of functions to type-check
+	delayed  []func()              // delayed checks requiring fully setup types
 
 	// context within which the current object is type-checked
 	// (valid only for the duration of type-checking a specific object)
@@ -63,6 +75,25 @@ type checker struct {
 
 	// debugging
 	indent int // indentation for tracing
+}
+
+// addDeclDep adds the dependency edge (check.decl -> to)
+// if check.decl exists and to has an initializer.
+func (check *checker) addDeclDep(to Object) {
+	from := check.decl
+	if from == nil {
+		return // not in a package-level init expression
+	}
+	decl := check.objMap[to]
+	if decl == nil || !decl.hasInitializer() {
+		return // to is not a package-level object or has no initializer
+	}
+	m := from.deps
+	if m == nil {
+		m = make(map[Object]*declInfo)
+		from.deps = m
+	}
+	m[to] = decl
 }
 
 func (check *checker) assocMethod(tname string, meth *Func) {
@@ -74,15 +105,6 @@ func (check *checker) assocMethod(tname string, meth *Func) {
 	m[tname] = append(m[tname], meth)
 }
 
-func (check *checker) markAsConversion(e *ast.CallExpr) {
-	m := check.conversions
-	if m == nil {
-		m = make(map[*ast.CallExpr]bool)
-		check.conversions = m
-	}
-	m[e] = true
-}
-
 func (check *checker) rememberUntyped(e ast.Expr, lhs bool, typ *Basic, val exact.Value) {
 	m := check.untyped
 	if m == nil {
@@ -92,12 +114,17 @@ func (check *checker) rememberUntyped(e ast.Expr, lhs bool, typ *Basic, val exac
 	m[e] = exprInfo{lhs, typ, val}
 }
 
+func (check *checker) later(name string, decl *declInfo, sig *Signature, body *ast.BlockStmt) {
+	check.funcs = append(check.funcs, funcInfo{name, decl, sig, body})
+}
+
 func (check *checker) delay(f func()) {
 	check.delayed = append(check.delayed, f)
 }
 
-// newChecker returns a new Checker instance.
-func newChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) *checker {
+// NewChecker returns a new Checker instance for a given package.
+// Package files may be incrementally added via checker.Files.
+func NewChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) *checker {
 	// make sure we have a configuration
 	if conf == nil {
 		conf = new(Config)
@@ -114,10 +141,53 @@ func newChecker(conf *Config, fset *token.FileSet, pkg *Package, info *Info) *ch
 	}
 
 	return &checker{
-		conf: conf,
-		fset: fset,
-		pkg:  pkg,
-		Info: info,
+		conf:   conf,
+		fset:   fset,
+		pkg:    pkg,
+		Info:   info,
+		objMap: make(map[Object]*declInfo),
+	}
+}
+
+// initFiles initializes the files-specific portion of checker.
+// The provided files must all belong to the same package.
+func (check *checker) initFiles(files []*ast.File) {
+	// start with a clean slate (check.Files may be called multiple times)
+	check.files = nil
+	check.fileScopes = nil
+	check.dotImports = nil
+
+	check.firstErr = nil
+	check.methods = nil
+	check.untyped = nil
+	check.funcs = nil
+	check.delayed = nil
+
+	// determine package name, files, and set up file scopes, dotImports maps
+	pkg := check.pkg
+	for i, file := range files {
+		switch name := file.Name.Name; pkg.name {
+		case "":
+			pkg.name = name
+			fallthrough
+
+		case name:
+			check.files = append(check.files, file)
+			var comment string
+			if pos := file.Pos(); pos.IsValid() {
+				comment = "file " + check.fset.File(pos).Name()
+			} else {
+				comment = fmt.Sprintf("file[%d]", i)
+			}
+			fileScope := NewScope(pkg.scope, comment)
+			check.recordScope(file, fileScope)
+			check.fileScopes = append(check.fileScopes, fileScope)
+			check.dotImports = append(check.dotImports, nil) // element (map) is lazily allocated
+
+		default:
+			check.errorf(file.Package, "package %s; expected %s", name, pkg.name)
+			// ignore this file
+		}
 	}
 }
 
@@ -135,82 +205,46 @@ func (check *checker) handleBailout(err *error) {
 	}
 }
 
-func (check *checker) files(files []*ast.File) (err error) {
+// Files checks the provided files as part of the checker's package.
+func (check *checker) Files(files []*ast.File) (err error) {
 	defer check.handleBailout(&err)
 
-	pkg := check.pkg
+	check.initFiles(files)
 
-	// determine package name and files
-	i := 0
-	for _, file := range files {
-		switch name := file.Name.Name; pkg.name {
-		case "":
-			pkg.name = name
-			fallthrough
-		case name:
-			files[i] = file
-			i++
-		default:
-			check.errorf(file.Package, "package %s; expected %s", name, pkg.name)
-			// ignore this file
-		}
-	}
+	check.collectObjects()
 
-	check.resolveFiles(files[:i])
+	objList := objectsOf(check.objMap)
+	check.packageObjects(objList)
+
+	check.functionBodies()
+
+	check.initDependencies(objList)
+
+	check.unusedImports()
 
 	// perform delayed checks
 	for _, f := range check.delayed {
 		f()
 	}
-	check.delayed = nil // not needed anymore
 
-	// remaining untyped expressions must indeed be untyped
-	if debug {
-		for x, info := range check.untyped {
-			if isTyped(info.typ) {
-				check.dump("%s: %s (type %s) is typed", x.Pos(), x, info.typ)
-				panic(0)
-			}
-		}
-	}
+	check.recordUntyped()
 
-	// notify client of any untyped types left
-	// TODO(gri) Consider doing this before and
-	// after function body checking for smaller
-	// map size and more immediate feedback.
-	if check.Types != nil {
-		for x, info := range check.untyped {
-			check.recordTypeAndValue(x, info.typ, info.val)
-		}
-	}
-
-	// copy check.InitOrder back to incoming *info if necessary
-	// (In case of early (error) bailout, this is not done, but we don't care in that case.)
-	// if info != nil {
-	// 	info.InitOrder = check.InitOrder
-	// }
-
-	pkg.complete = true
+	check.pkg.complete = true
 	return
 }
 
-// addDeclDep adds the dependency edge (check.decl -> to)
-// if check.decl exists and to has an init expression.
-func (check *checker) addDeclDep(to Object) {
-	from := check.decl
-	if from == nil {
-		return // not in a package-level init expression
+func (check *checker) recordUntyped() {
+	if !debug && check.Types == nil {
+		return // nothing to do
 	}
-	init := check.initMap[to]
-	if init == nil {
-		return // to does not have a package-level init expression
+
+	for x, info := range check.untyped {
+		if debug && isTyped(info.typ) {
+			check.dump("%s: %s (type %s) is typed", x.Pos(), x, info.typ)
+			unreachable()
+		}
+		check.recordTypeAndValue(x, info.typ, info.val)
 	}
-	m := from.deps
-	if m == nil {
-		m = make(map[Object]*declInfo)
-		from.deps = m
-	}
-	m[to] = init
 }
 
 func (check *checker) recordTypeAndValue(x ast.Expr, typ Type, val exact.Value) {
@@ -267,9 +301,17 @@ func (check *checker) recordCommaOkTypes(x ast.Expr, a [2]Type) {
 	}
 }
 
-func (check *checker) recordObject(id *ast.Ident, obj Object) {
+func (check *checker) recordDef(id *ast.Ident, obj Object) {
 	assert(id != nil)
-	if m := check.Objects; m != nil {
+	if m := check.Defs; m != nil {
+		m[id] = obj
+	}
+}
+
+func (check *checker) recordUse(id *ast.Ident, obj Object) {
+	assert(id != nil)
+	assert(obj != nil)
+	if m := check.Uses; m != nil {
 		m[id] = obj
 	}
 }
@@ -283,7 +325,7 @@ func (check *checker) recordImplicit(node ast.Node, obj Object) {
 
 func (check *checker) recordSelection(x *ast.SelectorExpr, kind SelectionKind, recv Type, obj Object, index []int, indirect bool) {
 	assert(obj != nil && (recv == nil || len(index) > 0))
-	check.recordObject(x.Sel, obj)
+	check.recordUse(x.Sel, obj)
 	// TODO(gri) Should we also call recordTypeAndValue?
 	if m := check.Selections; m != nil {
 		m[x] = &Selection{kind, recv, obj, index, indirect}

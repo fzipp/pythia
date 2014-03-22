@@ -108,6 +108,7 @@ func (check *checker) unary(x *operand, op token.Token) {
 		}
 		x.mode = commaok
 		x.typ = typ.elem
+		check.hasCallOrRecv = true
 		return
 	}
 
@@ -461,6 +462,14 @@ func (check *checker) updateExprType(x ast.Expr, typ Type, final bool) {
 	check.recordTypeAndValue(x, typ, old.val)
 }
 
+// updateExprVal updates the value of x to val.
+func (check *checker) updateExprVal(x ast.Expr, val exact.Value) {
+	if info, ok := check.untyped[x]; ok {
+		info.val = val
+		check.untyped[x] = info
+	}
+}
+
 // convertUntyped attempts to set the type of an untyped value to the target type.
 func (check *checker) convertUntyped(x *operand, target Type) {
 	if x.mode == invalid || isTyped(x.typ) || target == Typ[Invalid] {
@@ -493,6 +502,10 @@ func (check *checker) convertUntyped(x *operand, target Type) {
 			if x.mode == invalid {
 				return
 			}
+			// expression value may have been rounded - update if needed
+			// TODO(gri) A floating-point value may silently underflow to
+			// zero. If it was negative, the sign is lost. See issue 6898.
+			check.updateExprVal(x.expr, x.val)
 		} else {
 			// Non-constant untyped values may appear as the
 			// result of comparisons (untyped bool), intermediate
@@ -948,7 +961,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 	case *ast.Ellipsis:
 		// ellipses are handled explicitly where they are legal
 		// (array composite literals and parameter lists)
-		check.errorf(e.Pos(), "invalid use of '...'")
+		check.error(e.Pos(), "invalid use of '...'")
 		goto Error
 
 	case *ast.BasicLit:
@@ -992,7 +1005,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 			}
 		}
 		if typ == nil {
-			check.errorf(e.Pos(), "missing type in composite literal")
+			check.error(e.Pos(), "missing type in composite literal")
 			goto Error
 		}
 
@@ -1008,7 +1021,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 				for _, e := range e.Elts {
 					kv, _ := e.(*ast.KeyValueExpr)
 					if kv == nil {
-						check.errorf(e.Pos(), "mixture of field:value and value elements in struct literal")
+						check.error(e.Pos(), "mixture of field:value and value elements in struct literal")
 						continue
 					}
 					key, _ := kv.Key.(*ast.Ident)
@@ -1022,7 +1035,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 						continue
 					}
 					fld := fields[i]
-					check.recordObject(key, fld)
+					check.recordUse(key, fld)
 					// 0 <= i < len(fields)
 					if visited[i] {
 						check.errorf(kv.Pos(), "duplicate field name %s in struct literal", key.Name)
@@ -1042,12 +1055,12 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 				// no element must have a key
 				for i, e := range e.Elts {
 					if kv, _ := e.(*ast.KeyValueExpr); kv != nil {
-						check.errorf(kv.Pos(), "mixture of field:value and value elements in struct literal")
+						check.error(kv.Pos(), "mixture of field:value and value elements in struct literal")
 						continue
 					}
 					check.expr(x, e)
 					if i >= len(fields) {
-						check.errorf(x.pos(), "too many values in struct literal")
+						check.error(x.pos(), "too many values in struct literal")
 						break // cannot continue
 					}
 					// i < len(fields)
@@ -1060,7 +1073,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 					}
 				}
 				if len(e.Elts) < len(fields) {
-					check.errorf(e.Rbrace, "too few values in struct literal")
+					check.error(e.Rbrace, "too few values in struct literal")
 					// ok to continue
 				}
 			}
@@ -1080,7 +1093,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 			for _, e := range e.Elts {
 				kv, _ := e.(*ast.KeyValueExpr)
 				if kv == nil {
-					check.errorf(e.Pos(), "missing key in map literal")
+					check.error(e.Pos(), "missing key in map literal")
 					continue
 				}
 				check.expr(x, kv.Key)
@@ -1250,7 +1263,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 
 		// spec: "Only the first index may be omitted; it defaults to 0."
 		if slice3(e) && (e.High == nil || sliceMax(e) == nil) {
-			check.errorf(e.Rbrack, "2nd and 3rd index required in 3-index slice")
+			check.error(e.Rbrack, "2nd and 3rd index required in 3-index slice")
 			goto Error
 		}
 
