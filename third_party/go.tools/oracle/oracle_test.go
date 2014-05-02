@@ -234,6 +234,7 @@ func TestOracle(t *testing.T) {
 			continue
 		}
 		defer gotfh.Close()
+		defer os.Remove(got)
 
 		// Run the oracle on each query, redirecting its output
 		// and error (if any) to the foo.got file.
@@ -251,6 +252,7 @@ func TestOracle(t *testing.T) {
 		}
 		buf := new(bytes.Buffer)
 		cmd.Stdout = buf
+		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			t.Errorf("Oracle tests for %s failed: %s.\n%s\n",
 				filename, err, buf)

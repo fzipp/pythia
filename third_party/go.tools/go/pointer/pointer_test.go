@@ -154,7 +154,7 @@ func doOneInput(input, filename string) bool {
 	conf := loader.Config{SourceImports: true}
 
 	// Parsing.
-	f, err := conf.ParseFile(filename, input, 0)
+	f, err := conf.ParseFile(filename, input)
 	if err != nil {
 		fmt.Println(err)
 		return false
@@ -421,17 +421,6 @@ func checkPointsToExpectation(e *expectation, pts pointer.PointsToSet, lineMappi
 		}
 	}
 	return ok
-}
-
-// underlying returns the underlying type of typ.  Copied from go/types.
-func underlyingType(typ types.Type) types.Type {
-	if typ, ok := typ.(*types.Named); ok {
-		return typ.Underlying() // underlying types are never NamedTypes
-	}
-	if typ == nil {
-		panic("underlying(nil)")
-	}
-	return typ
 }
 
 func checkTypesExpectation(e *expectation, pts pointer.PointsToSet, typ types.Type) bool {

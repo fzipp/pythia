@@ -65,18 +65,18 @@
 			{{end}}
 			{{range .Funcs}}
 				{{$name_html := html .Name}}
-				<dd><a href="#{{$name_html}}">{{node_html $ .Decl false}}</a></dd>
+				<dd><a href="#{{$name_html}}">{{node_html $ .Decl false | sanitize}}</a></dd>
 			{{end}}
 			{{range .Types}}
 				{{$tname_html := html .Name}}
 				<dd><a href="#{{$tname_html}}">type {{$tname_html}}</a></dd>
 				{{range .Funcs}}
 					{{$name_html := html .Name}}
-					<dd>&nbsp; &nbsp; <a href="#{{$name_html}}">{{node_html $ .Decl false}}</a></dd>
+					<dd>&nbsp; &nbsp; <a href="#{{$name_html}}">{{node_html $ .Decl false | sanitize}}</a></dd>
 				{{end}}
 				{{range .Methods}}
 					{{$name_html := html .Name}}
-					<dd>&nbsp; &nbsp; <a href="#{{$tname_html}}.{{$name_html}}">{{node_html $ .Decl false}}</a></dd>
+					<dd>&nbsp; &nbsp; <a href="#{{$tname_html}}.{{$name_html}}">{{node_html $ .Decl false | sanitize}}</a></dd>
 				{{end}}
 			{{end}}
 			{{if $.Notes}}
@@ -111,7 +111,7 @@
 		</div><!-- .expanded -->
 		</div><!-- #pkg-index -->
 
-		<div id="pkg-callgraph" class="toggle">
+		<div id="pkg-callgraph" class="toggle" style="display: none">
 		<div class="collapsed">
 			<h2 class="toggleButton" title="Click to show Internal Call Graph section">Internal call graph ▹</h2>
 		</div> <!-- .expanded -->

@@ -288,9 +288,6 @@ func (a *analysis) posURL(pos token.Pos, len int) string {
 	}
 	posn := a.prog.Fset.Position(pos)
 	url := a.path2url[posn.Filename]
-	// The URLs use #L%d fragment ids, but they are just decorative.
-	// Emitting an anchor for each line caused page bloat, so
-	// instead we use onload JS code to jump to the selection.
 	return fmt.Sprintf("%s?s=%d:%d#L%d",
 		url, posn.Offset, posn.Offset+len, posn.Line)
 }
@@ -314,17 +311,17 @@ func Run(pta bool, result *Result) {
 		errors[err.Pos] = append(errors[err.Pos], err.Msg)
 	}
 
-	var roots, args []string
+	var roots, args []string // roots[i] ends with os.PathSeparator
 
 	// Enumerate packages in $GOROOT.
-	root := runtime.GOROOT() + "/src/pkg/"
+	root := filepath.Join(runtime.GOROOT(), "src", "pkg") + string(os.PathSeparator)
 	roots = append(roots, root)
 	args = allPackages(root)
 	log.Printf("GOROOT=%s: %s\n", root, args)
 
 	// Enumerate packages in $GOPATH.
 	for i, dir := range filepath.SplitList(build.Default.GOPATH) {
-		root := dir + "/src/"
+		root := filepath.Join(dir, "src") + string(os.PathSeparator)
 		roots = append(roots, root)
 		pkgs := allPackages(root)
 		log.Printf("GOPATH[%d]=%s: %s\n", i, root, pkgs)
@@ -342,7 +339,9 @@ func Run(pta bool, result *Result) {
 
 	log.Print("Loading and type-checking packages...")
 	iprog, err := conf.Load()
-	log.Printf("Loaded %d packages.", len(iprog.AllPackages))
+	if iprog != nil {
+		log.Printf("Loaded %d packages.", len(iprog.AllPackages))
+	}
 	if err != nil {
 		// TODO(adonovan): loader: don't give up just because
 		// of one parse error.
@@ -382,6 +381,7 @@ func Run(pta bool, result *Result) {
 	// i.e. "/src/pkg/" plus path relative to GOROOT/src/pkg or GOPATH[i]/src.
 	a.path2url = make(map[string]string)
 	for _, info := range iprog.AllPackages {
+	nextfile:
 		for _, f := range info.Files {
 			abs := iprog.Fset.File(f.Pos()).Name()
 			// Find the root to which this file belongs.
@@ -389,9 +389,12 @@ func Run(pta bool, result *Result) {
 				rel := strings.TrimPrefix(abs, root)
 				if len(rel) < len(abs) {
 					a.path2url[abs] = "/src/pkg/" + rel
-					break
+					continue nextfile
 				}
 			}
+
+			log.Printf("Can't locate file %s (package %q) beneath any root",
+				abs, info.Pkg.Path())
 		}
 	}
 
@@ -521,10 +524,8 @@ func (a linksByStart) Len() int           { return len(a) }
 // allPackages returns a new sorted slice of all packages beneath the
 // specified package root directory, e.g. $GOROOT/src/pkg or $GOPATH/src.
 // Derived from from go/ssa/stdlib_test.go
+// root must end with os.PathSeparator.
 func allPackages(root string) []string {
-	if !strings.HasSuffix(root, "/") {
-		root += "/"
-	}
 	var pkgs []string
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if info == nil {

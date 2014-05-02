@@ -506,6 +506,13 @@ func (p *Presentation) serveTextFile(w http.ResponseWriter, r *http.Request, abs
 		buf.Write(marshalJSON(data))
 		buf.WriteString(";</script>\n")
 
+		// TODO(adonovan): indicate whether analysis is
+		// disabled, pending, completed or failed.
+		// For now, display help link only if 'completed'.
+		if links != nil {
+			buf.WriteString("<a href='/lib/godoc/analysis/help.html'>Static analysis features</a><br/>")
+		}
+
 		buf.WriteString("<pre>")
 		formatGoSource(&buf, src, links, h, s)
 		buf.WriteString("</pre>")
@@ -527,6 +534,9 @@ func (p *Presentation) serveTextFile(w http.ResponseWriter, r *http.Request, abs
 // decorating it with the specified analysis links.
 //
 func formatGoSource(buf *bytes.Buffer, text []byte, links []analysis.Link, pattern string, selection Selection) {
+	// Emit to a temp buffer so that we can add line anchors at the end.
+	saved, buf := buf, new(bytes.Buffer)
+
 	var i int
 	var link analysis.Link // shared state of the two funcs below
 	segmentIter := func() (seg Segment) {
@@ -548,6 +558,18 @@ func formatGoSource(buf *bytes.Buffer, text []byte, links []analysis.Link, patte
 	}
 
 	FormatSelections(buf, text, linkWriter, segmentIter, selectionTag, comments, highlights, selection)
+
+	// Now copy buf to saved, adding line anchors.
+
+	// The lineSelection mechanism can't be composed with our
+	// linkWriter, so we have to add line spans as another pass.
+	n := 1
+	for _, line := range bytes.Split(buf.Bytes(), []byte("\n")) {
+		fmt.Fprintf(saved, "<span id=\"L%d\" class=\"ln\">%6d</span>\t", n, n)
+		n++
+		saved.Write(line)
+		saved.WriteByte('\n')
+	}
 }
 
 func (p *Presentation) serveDirectory(w http.ResponseWriter, r *http.Request, abspath, relpath string) {

@@ -46,7 +46,7 @@ type context struct {
 }
 
 // A checker maintains the state of the type checker.
-// It must be created with newChecker.
+// It must be created with NewChecker.
 type checker struct {
 	// package information
 	// (initialized by NewChecker, valid for the life-time of checker)
@@ -84,16 +84,10 @@ func (check *checker) addDeclDep(to Object) {
 	if from == nil {
 		return // not in a package-level init expression
 	}
-	decl := check.objMap[to]
-	if decl == nil || !decl.hasInitializer() {
+	if decl := check.objMap[to]; decl == nil || !decl.hasInitializer() {
 		return // to is not a package-level object or has no initializer
 	}
-	m := from.deps
-	if m == nil {
-		m = make(map[Object]*declInfo)
-		from.deps = m
-	}
-	m[to] = decl
+	from.addDep(to)
 }
 
 func (check *checker) assocMethod(tname string, meth *Func) {
@@ -213,7 +207,8 @@ func (check *checker) Files(files []*ast.File) (err error) {
 
 	check.collectObjects()
 
-	objList := objectsOf(check.objMap)
+	objList := check.resolveOrder()
+
 	check.packageObjects(objList)
 
 	check.functionBodies()
