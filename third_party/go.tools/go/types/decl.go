@@ -11,7 +11,7 @@ import (
 	"github.com/fzipp/pythia/third_party/go.tools/go/exact"
 )
 
-func (check *checker) reportAltDecl(obj Object) {
+func (check *Checker) reportAltDecl(obj Object) {
 	if pos := obj.Pos(); pos.IsValid() {
 		// We use "other" rather than "previous" here because
 		// the first declaration seen may not be textually
@@ -20,7 +20,7 @@ func (check *checker) reportAltDecl(obj Object) {
 	}
 }
 
-func (check *checker) declare(scope *Scope, id *ast.Ident, obj Object) {
+func (check *Checker) declare(scope *Scope, id *ast.Ident, obj Object) {
 	// spec: "The blank identifier, represented by the underscore
 	// character _, may be used in a declaration like any other
 	// identifier but the declaration does not introduce a new
@@ -39,13 +39,18 @@ func (check *checker) declare(scope *Scope, id *ast.Ident, obj Object) {
 
 // objDecl type-checks the declaration of obj in its respective (file) context.
 // See check.typ for the details on def and path.
-func (check *checker) objDecl(obj Object, def *Named, path []*TypeName) {
+func (check *Checker) objDecl(obj Object, def *Named, path []*TypeName) {
 	if obj.Type() != nil {
 		return // already checked - nothing to do
 	}
 
 	if trace {
-		check.trace(obj.Pos(), "-- resolving %s", obj.Name())
+		check.trace(obj.Pos(), "-- declaring %s", obj.Name())
+		check.indent++
+		defer func() {
+			check.indent--
+			check.trace(obj.Pos(), "=> %s", obj)
+		}()
 	}
 
 	d := check.objMap[obj]
@@ -85,7 +90,7 @@ func (check *checker) objDecl(obj Object, def *Named, path []*TypeName) {
 	}
 }
 
-func (check *checker) constDecl(obj *Const, typ, init ast.Expr) {
+func (check *Checker) constDecl(obj *Const, typ, init ast.Expr) {
 	assert(obj.typ == nil)
 
 	if obj.visited {
@@ -98,6 +103,9 @@ func (check *checker) constDecl(obj *Const, typ, init ast.Expr) {
 	assert(check.iota == nil)
 	check.iota = obj.val
 	defer func() { check.iota = nil }()
+
+	// provide valid constant value under all circumstances
+	obj.val = exact.MakeUnknown()
 
 	// determine type, if any
 	if typ != nil {
@@ -118,7 +126,7 @@ func (check *checker) constDecl(obj *Const, typ, init ast.Expr) {
 	check.initConst(obj, &x)
 }
 
-func (check *checker) varDecl(obj *Var, lhs []*Var, typ, init ast.Expr) {
+func (check *Checker) varDecl(obj *Var, lhs []*Var, typ, init ast.Expr) {
 	assert(obj.typ == nil)
 
 	if obj.visited {
@@ -188,7 +196,7 @@ func (n *Named) setUnderlying(typ Type) {
 	}
 }
 
-func (check *checker) typeDecl(obj *TypeName, typ ast.Expr, def *Named, path []*TypeName) {
+func (check *Checker) typeDecl(obj *TypeName, typ ast.Expr, def *Named, path []*TypeName) {
 	assert(obj.typ == nil)
 
 	// type declarations cannot use iota
@@ -224,7 +232,7 @@ func (check *checker) typeDecl(obj *TypeName, typ ast.Expr, def *Named, path []*
 	check.addMethodDecls(obj)
 }
 
-func (check *checker) addMethodDecls(obj *TypeName) {
+func (check *Checker) addMethodDecls(obj *TypeName) {
 	// get associated methods
 	methods := check.methods[obj.name]
 	if len(methods) == 0 {
@@ -280,7 +288,7 @@ func (check *checker) addMethodDecls(obj *TypeName) {
 	}
 }
 
-func (check *checker) funcDecl(obj *Func, decl *declInfo) {
+func (check *Checker) funcDecl(obj *Func, decl *declInfo) {
 	assert(obj.typ == nil)
 
 	// func declarations cannot use iota
@@ -302,7 +310,7 @@ func (check *checker) funcDecl(obj *Func, decl *declInfo) {
 	}
 }
 
-func (check *checker) declStmt(decl ast.Decl) {
+func (check *Checker) declStmt(decl ast.Decl) {
 	pkg := check.pkg
 
 	switch d := decl.(type) {

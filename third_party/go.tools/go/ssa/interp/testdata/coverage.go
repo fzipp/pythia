@@ -1,11 +1,8 @@
 // This interpreter test is designed to run very quickly yet provide
 // some coverage of a broad selection of constructs.
-// TODO(adonovan): more.
 //
 // Validate this file with 'go run' after editing.
 // TODO(adonovan): break this into small files organized by theme.
-// TODO(adonovan): move static tests (sanity checks) of ssa
-// construction into ssa/testdata.
 
 package main
 
@@ -13,17 +10,6 @@ import (
 	"fmt"
 	"reflect"
 )
-
-const zero int = 1
-
-var v = []int{1 + zero: 42}
-
-// Nonliteral keys in composite literal.
-func init() {
-	if x := fmt.Sprint(v); x != "[0 0 42]" {
-		panic(x)
-	}
-}
 
 func init() {
 	// Call of variadic function with (implicit) empty slice.
@@ -123,32 +109,6 @@ func init() {
 	t2.a = "wiz"
 	if x := fmt.Sprint(t1, t2); x != "{foo bar} {wiz bar}" {
 		panic(x)
-	}
-}
-
-// Range over string.
-func init() {
-	if x := len("Hello, 世界"); x != 13 { // bytes
-		panic(x)
-	}
-	var indices []int
-	var runes []rune
-	for i, r := range "Hello, 世界" {
-		runes = append(runes, r)
-		indices = append(indices, i)
-	}
-	if x := fmt.Sprint(runes); x != "[72 101 108 108 111 44 32 19990 30028]" {
-		panic(x)
-	}
-	if x := fmt.Sprint(indices); x != "[0 1 2 3 4 5 6 7 10]" {
-		panic(x)
-	}
-	s := ""
-	for _, r := range runes {
-		s = fmt.Sprintf("%s%c", s, r)
-	}
-	if s != "Hello, 世界" {
-		panic(s)
 	}
 }
 
@@ -281,25 +241,6 @@ func main() {
 	_ = map[int]*struct{}{0: {}}
 }
 
-// A blocking select (sans "default:") cannot fall through.
-// Regression test for issue 7022.
-func bug7022() int {
-	var c1, c2 chan int
-	select {
-	case <-c1:
-		return 123
-	case <-c2:
-		return 456
-	}
-}
-
-// Parens should not prevent intrinsic treatment of built-ins.
-// (Regression test for a crash.)
-func init() {
-	_ = (new)(int)
-	_ = (make)([]int, 0)
-}
-
 type mybool bool
 
 func (mybool) f() {}
@@ -342,26 +283,6 @@ func init() {
 	}
 }
 
-var order []int
-
-func create(x int) int {
-	order = append(order, x)
-	return x
-}
-
-var c = create(b + 1)
-var a, b = create(1), create(2)
-
-// Initialization order of package-level value specs.
-func init() {
-	if x := fmt.Sprint(order); x != "[2 3 1]" {
-		panic(x)
-	}
-	if c != 3 {
-		panic(c)
-	}
-}
-
 // Shifts.
 func init() {
 	var i int64 = 1
@@ -400,15 +321,16 @@ func init() {
 
 // An I->I type-assert fails iff the value is nil.
 func init() {
-	// TODO(adonovan): temporarily disabled; see comment at bottom of file.
-	// defer func() {
-	// 	r := fmt.Sprint(recover())
-	// 	if r != "interface conversion: interface is nil, not main.I" {
-	// 		panic("I->I type assertion succeeed for nil value")
-	// 	}
-	// }()
-	// var x I
-	// _ = x.(I)
+	defer func() {
+		r := fmt.Sprint(recover())
+		// Exact error varies by toolchain.
+		if r != "runtime error: interface conversion: interface is nil, not main.I" &&
+			r != "interface conversion: interface is nil, not main.I" {
+			panic("I->I type assertion succeeded for nil value")
+		}
+	}()
+	var x I
+	_ = x.(I)
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -480,54 +402,6 @@ func init() {
 	multipleLabels()
 }
 
-////////////////////////////////////////////////////////////////////////
-// Defer
-
-func deferMutatesResults(noArgReturn bool) (a, b int) {
-	defer func() {
-		if a != 1 || b != 2 {
-			panic(fmt.Sprint(a, b))
-		}
-		a, b = 3, 4
-	}()
-	if noArgReturn {
-		a, b = 1, 2
-		return
-	}
-	return 1, 2
-}
-
-func init() {
-	a, b := deferMutatesResults(true)
-	if a != 3 || b != 4 {
-		panic(fmt.Sprint(a, b))
-	}
-	a, b = deferMutatesResults(false)
-	if a != 3 || b != 4 {
-		panic(fmt.Sprint(a, b))
-	}
-}
-
-// We concatenate init blocks to make a single function, but we must
-// run defers at the end of each block, not the combined function.
-var deferCount = 0
-
-func init() {
-	deferCount = 1
-	defer func() {
-		deferCount++
-	}()
-	// defer runs HERE
-}
-
-func init() {
-	// Strictly speaking the spec says deferCount may be 0 or 2
-	// since the relative order of init blocks is unspecified.
-	if deferCount != 2 {
-		panic(deferCount) // defer call has not run!
-	}
-}
-
 func init() {
 	// Struct equivalence ignores blank fields.
 	type s struct{ x, _, z int }
@@ -558,21 +432,6 @@ func init() {
 	_ = i == j // interface comparison recurses on types
 }
 
-// Composite literals
-
-func init() {
-	type M map[int]int
-	m1 := []*M{{1: 1}, &M{2: 2}}
-	want := "map[1:1] map[2:2]"
-	if got := fmt.Sprint(*m1[0], *m1[1]); got != want {
-		panic(got)
-	}
-	m2 := []M{{1: 1}, M{2: 2}}
-	if got := fmt.Sprint(m2[0], m2[1]); got != want {
-		panic(got)
-	}
-}
-
 func init() {
 	// Regression test for SSA renaming bug.
 	var ints []int
@@ -584,31 +443,6 @@ func init() {
 	if fmt.Sprint(ints) != "[1 1 1]" {
 		panic(ints)
 	}
-}
-
-func init() {
-	// Regression test for issue 6806.
-	ch := make(chan int)
-	select {
-	case n, _ := <-ch:
-		_ = n
-	default:
-		// The default case disables the simplification of
-		// select to a simple receive statement.
-	}
-
-	// value,ok-form receive where TypeOf(ok) is a named boolean.
-	type mybool bool
-	var x int
-	var y mybool
-	select {
-	case x, y = <-ch:
-	default:
-		// The default case disables the simplification of
-		// select to a simple receive statement.
-	}
-	_ = x
-	_ = y
 }
 
 // Regression test for issue 6949:
@@ -635,10 +469,28 @@ func init() {
 	if got := lenCapLoHi(s[1:3:3]); got != [4]int{2, 2, 1, 2} {
 		panic(got)
 	}
+	max := 3
+	if "a"[0] == 'a' {
+		max = 2 // max is non-constant, even in SSA form
+	}
+	if got := lenCapLoHi(s[1:2:max]); got != [4]int{1, 1, 1, 1} {
+		panic(got)
+	}
 }
 
-// Regression test for issue 7840 (covered by SSA sanity checker).
-func bug7840() bool {
-	// This creates a single-predecessor block with a φ-node.
-	return false && a == 0 && a == 0
+// Test that a nice error is issue by indirection wrappers.
+func init() {
+	var ptr *T
+	var i I = ptr
+
+	defer func() {
+		r := fmt.Sprint(recover())
+		// Exact error varies by toolchain:
+		if r != "runtime error: value method (main.T).f called using nil *main.T pointer" &&
+			r != "value method main.T.f called using nil *T pointer" {
+			panic("want panic from call with nil receiver, got " + r)
+		}
+	}()
+	i.f()
+	panic("unreachable")
 }

@@ -952,11 +952,13 @@ func callBuiltin(caller *frame, callpos token.Pos, fn *ssa.Builtin, args []value
 		// append([]T, ...[]T) []T
 		return append(args[0].([]value), args[1].([]value)...)
 
-	case "copy": // copy([]T, []T) int
-		if _, ok := args[1].(string); ok {
-			panic("copy([]byte, string) not yet implemented")
+	case "copy": // copy([]T, []T) int or copy([]byte, string) int
+		src := args[1]
+		if _, ok := src.(string); ok {
+			params := fn.Type().(*types.Signature).Params()
+			src = conv(params.At(0).Type(), params.At(1).Type(), src)
 		}
-		return copy(args[0].([]value), args[1].([]value))
+		return copy(args[0].([]value), src.([]value))
 
 	case "close": // close(chan T)
 		close(args[0].(chan value))
@@ -1059,6 +1061,16 @@ func callBuiltin(caller *frame, callpos token.Pos, fn *ssa.Builtin, args []value
 
 	case "recover":
 		return doRecover(caller)
+
+	case "ssa:wrapnilchk":
+		recv := args[0]
+		if recv.(*value) == nil {
+			recvType := args[1]
+			methodName := args[2]
+			panic(fmt.Sprintf("value method (%s).%s called using nil *%s pointer",
+				recvType, methodName, recvType))
+		}
+		return recv
 	}
 
 	panic("unknown built-in: " + fn.Name())

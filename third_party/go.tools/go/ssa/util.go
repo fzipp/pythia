@@ -50,12 +50,23 @@ func isPointer(typ types.Type) bool {
 	return ok
 }
 
+// isInterface reports whether T's underlying type is an interface.
+func isInterface(T types.Type) bool {
+	_, ok := T.Underlying().(*types.Interface)
+	return ok
+}
+
 // deref returns a pointer's element type; otherwise it returns typ.
 func deref(typ types.Type) types.Type {
 	if p, ok := typ.Underlying().(*types.Pointer); ok {
 		return p.Elem()
 	}
 	return typ
+}
+
+// recvType returns the receiver type of method obj.
+func recvType(obj *types.Func) types.Type {
+	return obj.Type().(*types.Signature).Recv().Type()
 }
 
 // DefaultType returns the default "typed" type for an "untyped" type;
@@ -103,37 +114,23 @@ func logStack(format string, args ...interface{}) func() {
 	}
 }
 
-// callsRecover reports whether f contains a direct call to recover().
-func callsRecover(f *Function) bool {
-	for _, b := range f.Blocks {
-		for _, instr := range b.Instrs {
-			if call, ok := instr.(*Call); ok {
-				if blt, ok := call.Call.Value.(*Builtin); ok {
-					if blt.Name() == "recover" {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
 // newVar creates a 'var' for use in a types.Tuple.
 func newVar(name string, typ types.Type) *types.Var {
 	return types.NewParam(token.NoPos, nil, name, typ)
 }
 
-var (
-	lenObject  = types.Universe.Lookup("len").(*types.Builtin)
-	lenResults = types.NewTuple(newVar("", tInt))
-)
+// anonVar creates an anonymous 'var' for use in a types.Tuple.
+func anonVar(typ types.Type) *types.Var {
+	return newVar("", typ)
+}
+
+var lenResults = types.NewTuple(anonVar(tInt))
 
 // makeLen returns the len builtin specialized to type func(T)int.
 func makeLen(T types.Type) *Builtin {
-	lenParams := types.NewTuple(newVar("", T))
+	lenParams := types.NewTuple(anonVar(T))
 	return &Builtin{
-		object: lenObject,
-		sig:    types.NewSignature(nil, nil, lenParams, lenResults, false),
+		name: "len",
+		sig:  types.NewSignature(nil, nil, lenParams, lenResults, false),
 	}
 }

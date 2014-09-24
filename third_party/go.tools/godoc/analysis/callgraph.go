@@ -43,7 +43,7 @@ func (a *analysis) doCallgraph(cg *callgraph.Graph) {
 	for _, n := range cg.Nodes {
 		for _, e := range n.Out {
 			if e.Site == nil {
-				continue // a call from the <root> node
+				continue // a call from a synthetic node such as <root>
 			}
 
 			// Add (site pos, callee) to calledFuncs.
@@ -98,7 +98,7 @@ func (a *analysis) doCallgraph(cg *callgraph.Graph) {
 	for callee, sites := range callingSites {
 		pos := funcToken(callee)
 		if pos == token.NoPos {
-			log.Print("CALLERS: skipping %s: no pos", callee)
+			log.Printf("CALLERS: skipping %s: no pos", callee)
 			continue
 		}
 
@@ -235,10 +235,10 @@ func funcToken(fn *ssa.Function) token.Pos {
 // prettyFunc pretty-prints fn for the user interface.
 // TODO(adonovan): return HTML so we have more markup freedom.
 func prettyFunc(this *types.Package, fn *ssa.Function) string {
-	if fn.Enclosing != nil {
+	if fn.Parent() != nil {
 		return fmt.Sprintf("%s in %s",
 			types.TypeString(this, fn.Signature),
-			prettyFunc(this, fn.Enclosing))
+			prettyFunc(this, fn.Parent()))
 	}
 	if fn.Synthetic != "" && fn.Name() == "init" {
 		// (This is the actual initializer, not a declared 'func init').

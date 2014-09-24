@@ -78,13 +78,13 @@ func main() {
 	print(v6)           // v6::Const
 
 	var v7 S    // &v7::Alloc
-	v7.x = 1    // &v7::Alloc x::Const
-	print(v7.x) // v7::UnOp x::Field
+	v7.x = 1    // &v7::Alloc &x::FieldAddr
+	print(v7.x) // &v7::Alloc &x::FieldAddr
 
 	var v8 [1]int // &v8::Alloc
 	v8[0] = 0     // &v8::Alloc
 	print(v8[:])  // &v8::Alloc
-	_ = v8[0]     // v8::UnOp (load from Alloc)
+	_ = v8[0]     // &v8::Alloc
 	_ = v8[:][0]  // &v8::Alloc
 	v8ptr := &v8  // v8ptr::Alloc &v8::Alloc
 	_ = v8ptr[0]  // v8ptr::Alloc
@@ -112,10 +112,10 @@ func main() {
 	_ = v11.method            // v11::Const
 	_ = (*struct{ J }).method // J::nil
 
-	// These vars are optimised away.
+	// These vars are not optimised away.
 	if false {
-		v13 := 0     // v13::nil
-		println(v13) // v13::nil
+		v13 := 0     // v13::Const
+		println(v13) // v13::Const
 	}
 
 	switch x := 1; x { // x::Const
@@ -145,7 +145,7 @@ func main() {
 
 	// .Op is an inter-package FieldVal-selection.
 	var err os.PathError // &err::Alloc
-	_ = err.Op           // err::UnOp Op::Field
+	_ = err.Op           // &err::Alloc &Op::FieldAddr
 	_ = &err.Op          // &err::Alloc &Op::FieldAddr
 
 	// Exercise corner-cases of lvalues vs rvalues.

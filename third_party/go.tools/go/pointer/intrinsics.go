@@ -152,12 +152,12 @@ func init() {
 		"sync/atomic.CompareAndSwapUintptr":     ext۰NoEffect,
 		"sync/atomic.LoadInt32":                 ext۰NoEffect,
 		"sync/atomic.LoadInt64":                 ext۰NoEffect,
-		"sync/atomic.LoadPointer":               ext۰NoEffect, // ignore unsafe.Pointer for now
+		"sync/atomic.LoadPointer":               ext۰NoEffect, // ignore unsafe.Pointers
 		"sync/atomic.LoadUint32":                ext۰NoEffect,
 		"sync/atomic.LoadUint64":                ext۰NoEffect,
 		"sync/atomic.LoadUintptr":               ext۰NoEffect,
 		"sync/atomic.StoreInt32":                ext۰NoEffect,
-		"sync/atomic.StorePointer":              ext۰NoEffect, // ignore unsafe.Pointer for now
+		"sync/atomic.StorePointer":              ext۰NoEffect, // ignore unsafe.Pointers
 		"sync/atomic.StoreUint32":               ext۰NoEffect,
 		"sync/atomic.StoreUintptr":              ext۰NoEffect,
 		"syscall.Close":                         ext۰NoEffect,
@@ -174,7 +174,7 @@ func init() {
 		"syscall.setenv_c":                      ext۰NoEffect,
 		"time.Sleep":                            ext۰NoEffect,
 		"time.now":                              ext۰NoEffect,
-		"time.startTimer":                       ext۰NoEffect,
+		"time.startTimer":                       ext۰time۰startTimer,
 		"time.stopTimer":                        ext۰NoEffect,
 	} {
 		intrinsicsByName[name] = fn
@@ -243,25 +243,23 @@ func (a *analysis) isReflect(fn *ssa.Function) bool {
 func ext۰NoEffect(a *analysis, cgn *cgnode) {}
 
 func ext۰NotYetImplemented(a *analysis, cgn *cgnode) {
-	// TODO(adonovan): enable this warning when we've implemented
-	// enough that it's not unbearably annoying.
-	if true {
-		fn := cgn.fn
-		a.warnf(fn.Pos(), "unsound: intrinsic treatment of %s not yet implemented", fn)
-	}
+	fn := cgn.fn
+	a.warnf(fn.Pos(), "unsound: intrinsic treatment of %s not yet implemented", fn)
 }
 
 // ---------- func runtime.SetFinalizer(x, f interface{}) ----------
 
 // runtime.SetFinalizer(x, f)
 type runtimeSetFinalizerConstraint struct {
-	targets nodeid
+	targets nodeid // (indirect)
 	f       nodeid // (ptr)
 	x       nodeid
 }
 
-func (c *runtimeSetFinalizerConstraint) ptr() nodeid                      { return c.f }
-func (c *runtimeSetFinalizerConstraint) indirect(nodes []nodeid) []nodeid { return nodes }
+func (c *runtimeSetFinalizerConstraint) ptr() nodeid { return c.f }
+func (c *runtimeSetFinalizerConstraint) presolve(h *hvn) {
+	h.markIndirect(onodeid(c.targets), "SetFinalizer.targets")
+}
 func (c *runtimeSetFinalizerConstraint) renumber(mapping []nodeid) {
 	c.targets = mapping[c.targets]
 	c.f = mapping[c.f]
@@ -272,9 +270,9 @@ func (c *runtimeSetFinalizerConstraint) String() string {
 	return fmt.Sprintf("runtime.SetFinalizer(n%d, n%d)", c.x, c.f)
 }
 
-func (c *runtimeSetFinalizerConstraint) solve(a *analysis, _ *node, delta nodeset) {
-	for fObj := range delta {
-		tDyn, f, indirect := a.taggedValue(fObj)
+func (c *runtimeSetFinalizerConstraint) solve(a *analysis, delta *nodeset) {
+	for _, fObj := range delta.AppendTo(a.deltaSpace) {
+		tDyn, f, indirect := a.taggedValue(nodeid(fObj))
 		if indirect {
 			// TODO(adonovan): we'll need to implement this
 			// when we start creating indirect tagged objects.
@@ -316,5 +314,67 @@ func ext۰runtime۰SetFinalizer(a *analysis, cgn *cgnode) {
 		targets: targets,
 		x:       params,
 		f:       params + 1,
+	})
+}
+
+// ---------- func time.startTimer(t *runtimeTimer) ----------
+
+// time.StartTimer(t)
+type timeStartTimerConstraint struct {
+	targets nodeid // (indirect)
+	t       nodeid // (ptr)
+}
+
+func (c *timeStartTimerConstraint) ptr() nodeid { return c.t }
+func (c *timeStartTimerConstraint) presolve(h *hvn) {
+	h.markIndirect(onodeid(c.targets), "StartTimer.targets")
+}
+func (c *timeStartTimerConstraint) renumber(mapping []nodeid) {
+	c.targets = mapping[c.targets]
+	c.t = mapping[c.t]
+}
+
+func (c *timeStartTimerConstraint) String() string {
+	return fmt.Sprintf("time.startTimer(n%d)", c.t)
+}
+
+func (c *timeStartTimerConstraint) solve(a *analysis, delta *nodeset) {
+	for _, tObj := range delta.AppendTo(a.deltaSpace) {
+		t := nodeid(tObj)
+
+		// We model startTimer as if it was defined thus:
+		// 	func startTimer(t *runtimeTimer) { t.f(t.arg) }
+
+		// We hard-code the field offsets of time.runtimeTimer:
+		// type runtimeTimer struct {
+		//  0     __identity__
+		//  1    i      int32
+		//  2    when   int64
+		//  3    period int64
+		//  4    f      func(int64, interface{})
+		//  5    arg    interface{}
+		// }
+		f := t + 4
+		arg := t + 5
+
+		// store t.arg to t.f.params[0]
+		// (offset 1 => skip identity)
+		a.store(f, arg, 1, 1)
+
+		// Add dynamic call target.
+		if a.onlineCopy(c.targets, f) {
+			a.addWork(c.targets)
+		}
+	}
+}
+
+func ext۰time۰startTimer(a *analysis, cgn *cgnode) {
+	// This is the shared contour, used for dynamic calls.
+	targets := a.addOneNode(tInvalid, "startTimer.targets", nil)
+	cgn.sites = append(cgn.sites, &callsite{targets: targets})
+	params := a.funcParams(cgn.obj)
+	a.addConstraint(&timeStartTimerConstraint{
+		targets: targets,
+		t:       params,
 	})
 }

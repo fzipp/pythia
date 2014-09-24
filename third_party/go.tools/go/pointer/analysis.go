@@ -12,12 +12,26 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"runtime"
 	"runtime/debug"
+	"sort"
 
 	"github.com/fzipp/pythia/third_party/go.tools/go/callgraph"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types/typeutil"
+)
+
+const (
+	// optimization options; enable all when committing
+	optRenumber = true // enable renumbering optimization (makes logs hard to read)
+	optHVN      = true // enable pointer equivalence via Hash-Value Numbering
+
+	// debugging options; disable all when committing
+	debugHVN           = false // enable assertions in HVN
+	debugHVNVerbose    = false // enable extra HVN logging
+	debugHVNCrossCheck = false // run solver with/without HVN and compare (caveats below)
+	debugTimers        = false // show running time of each phase
 )
 
 // object.flags bitmask values.
@@ -72,7 +86,7 @@ type nodeid uint32
 type node struct {
 	// If non-nil, this node is the start of an object
 	// (addressable memory location).
-	// The following obj.size words implicitly belong to the object;
+	// The following obj.size nodes implicitly belong to the object;
 	// they locate their object by scanning back.
 	obj *object
 
@@ -85,21 +99,10 @@ type node struct {
 	// an object of aggregate type (struct, tuple, array) this is.
 	subelement *fieldInfo // e.g. ".a.b[*].c"
 
-	// Points-to sets.
-	pts     nodeset // points-to set of this node
-	prevPts nodeset // pts(n) in previous iteration (for difference propagation)
-
-	// Graph edges
-	copyTo nodeset // simple copy constraint edges
-
-	// Complex constraints attached to this node (x).
-	// - *loadConstraint       y=*x
-	// - *offsetAddrConstraint y=&x.f or y=&x[0]
-	// - *storeConstraint      *x=z
-	// - *typeFilterConstraint y=x.(I)
-	// - *untagConstraint      y=x.(C)
-	// - *invokeConstraint     y=x.f(params...)
-	complex constraintset
+	// Solver state for the canonical node of this pointer-
+	// equivalence class.  Each node is created with its own state
+	// but they become shared after HVN.
+	solve *solverState
 }
 
 // An analysis instance holds the state of a single pointer analysis problem.
@@ -119,9 +122,12 @@ type analysis struct {
 	globalobj   map[ssa.Value]nodeid        // maps v to sole member of pts(v), if singleton
 	localval    map[ssa.Value]nodeid        // node for each local ssa.Value
 	localobj    map[ssa.Value]nodeid        // maps v to sole member of pts(v), if singleton
-	work        worklist                    // solver's worklist
+	atFuncs     map[*ssa.Function]bool      // address-taken functions (for presolver)
+	mapValues   []nodeid                    // values of makemap objects (indirect in HVN)
+	work        nodeset                     // solver's worklist
 	result      *Result                     // results of the analysis
 	track       track                       // pointerlike types whose aliasing we track
+	deltaSpace  []int                       // working space for iterating over PTS deltas
 
 	// Reflection & intrinsics:
 	hasher              typeutil.Hasher // cache of type hashes
@@ -135,9 +141,10 @@ type analysis struct {
 	runtimeSetFinalizer *ssa.Function   // runtime.SetFinalizer
 }
 
-// enclosingObj returns the object (addressible memory object) that encloses node id.
-// Panic ensues if that node does not belong to any object.
-func (a *analysis) enclosingObj(id nodeid) *object {
+// enclosingObj returns the first node of the addressable memory
+// object that encloses node id.  Panic ensues if that node does not
+// belong to any object.
+func (a *analysis) enclosingObj(id nodeid) nodeid {
 	// Find previous node with obj != nil.
 	for i := id; i >= 0; i-- {
 		n := a.nodes[i]
@@ -145,7 +152,7 @@ func (a *analysis) enclosingObj(id nodeid) *object {
 			if i+nodeid(obj.size) <= id {
 				break // out of bounds
 			}
-			return obj
+			return i
 		}
 	}
 	panic("node has no enclosing object")
@@ -155,7 +162,7 @@ func (a *analysis) enclosingObj(id nodeid) *object {
 // Panic ensues if that node is not addressable.
 func (a *analysis) labelFor(id nodeid) *Label {
 	return &Label{
-		obj:        a.enclosingObj(id),
+		obj:        a.nodes[a.enclosingObj(id)].obj,
 		subelement: a.nodes[id].subelement,
 	}
 }
@@ -205,6 +212,9 @@ func (a *analysis) computeTrackBits() {
 // always succeed.  An error can occur only due to an internal bug.
 //
 func Analyze(config *Config) (result *Result, err error) {
+	if config.Mains == nil {
+		return nil, fmt.Errorf("no main/test packages to analyze (check $GOROOT/$GOPATH)")
+	}
 	defer func() {
 		if p := recover(); p != nil {
 			err = fmt.Errorf("internal error in pointer analysis: %v (please report this bug)", p)
@@ -221,13 +231,14 @@ func Analyze(config *Config) (result *Result, err error) {
 		globalobj:   make(map[ssa.Value]nodeid),
 		flattenMemo: make(map[types.Type][]*fieldInfo),
 		trackTypes:  make(map[types.Type]bool),
+		atFuncs:     make(map[*ssa.Function]bool),
 		hasher:      typeutil.MakeHasher(),
 		intrinsics:  make(map[*ssa.Function]intrinsic),
-		work:        makeMapWorklist(),
 		result: &Result{
 			Queries:         make(map[ssa.Value]Pointer),
 			IndirectQueries: make(map[ssa.Value]Pointer),
 		},
+		deltaSpace: make([]int, 0, 100),
 	}
 
 	if false {
@@ -235,7 +246,7 @@ func Analyze(config *Config) (result *Result, err error) {
 	}
 
 	if a.log != nil {
-		fmt.Fprintln(a.log, "======== NEW ANALYSIS ========")
+		fmt.Fprintln(a.log, "==== Starting analysis")
 	}
 
 	// Pointer analysis requires a complete program for soundness.
@@ -274,23 +285,54 @@ func Analyze(config *Config) (result *Result, err error) {
 	a.computeTrackBits()
 
 	a.generate()
+	a.showCounts()
 
-	if a.log != nil {
-		// Show size of constraint system.
-		counts := make(map[reflect.Type]int)
-		for _, c := range a.constraints {
-			counts[reflect.TypeOf(c)]++
-		}
-		fmt.Fprintf(a.log, "# constraints:\t%d\n", len(a.constraints))
-		for t, n := range counts {
-			fmt.Fprintf(a.log, "\t%s:\t%d\n", t, n)
-		}
-		fmt.Fprintf(a.log, "# nodes:\t%d\n", len(a.nodes))
+	if optRenumber {
+		a.renumber()
 	}
 
-	a.optimize()
+	N := len(a.nodes) // excludes solver-created nodes
+
+	if optHVN {
+		if debugHVNCrossCheck {
+			// Cross-check: run the solver once without
+			// optimization, once with, and compare the
+			// solutions.
+			savedConstraints := a.constraints
+
+			a.solve()
+			a.dumpSolution("A.pts", N)
+
+			// Restore.
+			a.constraints = savedConstraints
+			for _, n := range a.nodes {
+				n.solve = new(solverState)
+			}
+			a.nodes = a.nodes[:N]
+
+			// rtypes is effectively part of the solver state.
+			a.rtypes = typeutil.Map{}
+			a.rtypes.SetHasher(a.hasher)
+		}
+
+		a.hvn()
+	}
+
+	if debugHVNCrossCheck {
+		runtime.GC()
+		runtime.GC()
+	}
 
 	a.solve()
+
+	// Compare solutions.
+	if optHVN && debugHVNCrossCheck {
+		a.dumpSolution("B.pts", N)
+
+		if !diff("A.pts", "B.pts") {
+			return nil, fmt.Errorf("internal error: optimization changed solution")
+		}
+	}
 
 	// Create callgraph.Nodes in deterministic order.
 	if cg := a.result.CallGraph; cg != nil {
@@ -300,10 +342,11 @@ func Analyze(config *Config) (result *Result, err error) {
 	}
 
 	// Add dynamic edges to call graph.
+	var space [100]int
 	for _, caller := range a.cgnodes {
 		for _, site := range caller.sites {
-			for callee := range a.nodes[site.targets].pts {
-				a.callEdge(caller, site, callee)
+			for _, callee := range a.nodes[site.targets].solve.pts.AppendTo(space[:0]) {
+				a.callEdge(caller, site, nodeid(callee))
 			}
 		}
 	}
@@ -338,5 +381,67 @@ func (a *analysis) callEdge(caller *cgnode, site *callsite, calleeid nodeid) {
 	if fn := callee.fn; fn.Blocks == nil && a.findIntrinsic(fn) == nil {
 		a.warnf(site.pos(), "unsound call to unknown intrinsic: %s", fn)
 		a.warnf(fn.Pos(), " (declared here)")
+	}
+}
+
+// dumpSolution writes the PTS solution to the specified file.
+//
+// It only dumps the nodes that existed before solving.  The order in
+// which solver-created nodes are created depends on pre-solver
+// optimization, so we can't include them in the cross-check.
+//
+func (a *analysis) dumpSolution(filename string, N int) {
+	f, err := os.Create(filename)
+	if err != nil {
+		panic(err)
+	}
+	for id, n := range a.nodes[:N] {
+		if _, err := fmt.Fprintf(f, "pts(n%d) = {", id); err != nil {
+			panic(err)
+		}
+		var sep string
+		for _, l := range n.solve.pts.AppendTo(a.deltaSpace) {
+			if l >= N {
+				break
+			}
+			fmt.Fprintf(f, "%s%d", sep, l)
+			sep = " "
+		}
+		fmt.Fprintf(f, "} : %s\n", n.typ)
+	}
+	if err := f.Close(); err != nil {
+		panic(err)
+	}
+}
+
+// showCounts logs the size of the constraint system.  A typical
+// optimized distribution is 65% copy, 13% load, 11% addr, 5%
+// offsetAddr, 4% store, 2% others.
+//
+func (a *analysis) showCounts() {
+	if a.log != nil {
+		counts := make(map[reflect.Type]int)
+		for _, c := range a.constraints {
+			counts[reflect.TypeOf(c)]++
+		}
+		fmt.Fprintf(a.log, "# constraints:\t%d\n", len(a.constraints))
+		var lines []string
+		for t, n := range counts {
+			line := fmt.Sprintf("%7d  (%2d%%)\t%s", n, 100*n/len(a.constraints), t)
+			lines = append(lines, line)
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(lines)))
+		for _, line := range lines {
+			fmt.Fprintf(a.log, "\t%s\n", line)
+		}
+
+		fmt.Fprintf(a.log, "# nodes:\t%d\n", len(a.nodes))
+
+		// Show number of pointer equivalence classes.
+		m := make(map[*solverState]bool)
+		for _, n := range a.nodes {
+			m[n.solve] = true
+		}
+		fmt.Fprintf(a.log, "# ptsets:\t%d\n", len(m))
 	}
 }

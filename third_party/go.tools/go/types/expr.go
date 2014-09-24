@@ -66,7 +66,7 @@ var unaryOpPredicates = opPredicates{
 	token.NOT: isBoolean,
 }
 
-func (check *checker) op(m opPredicates, x *operand, op token.Token) bool {
+func (check *Checker) op(m opPredicates, x *operand, op token.Token) bool {
 	if pred := m[op]; pred != nil {
 		if !pred(x.typ) {
 			check.invalidOp(x.pos(), "operator %s not defined for %s", op, x)
@@ -79,7 +79,7 @@ func (check *checker) op(m opPredicates, x *operand, op token.Token) bool {
 	return true
 }
 
-func (check *checker) unary(x *operand, op token.Token) {
+func (check *Checker) unary(x *operand, op token.Token) {
 	switch op {
 	case token.AND:
 		// spec: "As an exception to the addressability
@@ -149,21 +149,14 @@ func isComparison(op token.Token) bool {
 }
 
 func fitsFloat32(x exact.Value) bool {
-	f, _ := exact.Float64Val(x)
-	// spec: "In all non-constant conversions involving floating-point
-	// or complex values, if the result type cannot represent the value
-	// the conversion succeeds but the result value is implementation-
-	// dependent."
-	//
-	// We assume that float32(f) returns an Inf if f is too large for
-	// a float32, or if f is an Inf; and that it returns 0 for values
-	// with too small a magnitude.
-	return !math.IsInf(float64(float32(f)), 0)
+	f32, _ := exact.Float32Val(x)
+	f := float64(f32)
+	return !math.IsInf(f, 0)
 }
 
 func roundFloat32(x exact.Value) exact.Value {
-	f, _ := exact.Float64Val(x)
-	f = float64(float32(f))
+	f32, _ := exact.Float32Val(x)
+	f := float64(f32)
 	if !math.IsInf(f, 0) {
 		return exact.MakeFloat64(f)
 	}
@@ -327,7 +320,7 @@ func representableConst(x exact.Value, conf *Config, as BasicKind, rounded *exac
 }
 
 // representable checks that a constant operand is representable in the given basic type.
-func (check *checker) representable(x *operand, typ *Basic) {
+func (check *Checker) representable(x *operand, typ *Basic) {
 	assert(x.mode == constant)
 	if !representableConst(x.val, check.conf, typ.kind, &x.val) {
 		var msg string
@@ -362,7 +355,7 @@ func (check *checker) representable(x *operand, typ *Basic) {
 // and if x is the (formerly untyped) lhs operand of a non-constant
 // shift, it must be an integer value.
 //
-func (check *checker) updateExprType(x ast.Expr, typ Type, final bool) {
+func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 	old, found := check.untyped[x]
 	if !found {
 		return // nothing to do
@@ -458,11 +451,11 @@ func (check *checker) updateExprType(x ast.Expr, typ Type, final bool) {
 	}
 
 	// Everything's fine, record final type and value for x.
-	check.recordTypeAndValue(x, typ, old.val)
+	check.recordTypeAndValue(x, old.mode, typ, old.val)
 }
 
 // updateExprVal updates the value of x to val.
-func (check *checker) updateExprVal(x ast.Expr, val exact.Value) {
+func (check *Checker) updateExprVal(x ast.Expr, val exact.Value) {
 	if info, ok := check.untyped[x]; ok {
 		info.val = val
 		check.untyped[x] = info
@@ -470,7 +463,7 @@ func (check *checker) updateExprVal(x ast.Expr, val exact.Value) {
 }
 
 // convertUntyped attempts to set the type of an untyped value to the target type.
-func (check *checker) convertUntyped(x *operand, target Type) {
+func (check *Checker) convertUntyped(x *operand, target Type) {
 	if x.mode == invalid || isTyped(x.typ) || target == Typ[Invalid] {
 		return
 	}
@@ -570,7 +563,7 @@ Error:
 	x.mode = invalid
 }
 
-func (check *checker) comparison(x, y *operand, op token.Token) {
+func (check *Checker) comparison(x, y *operand, op token.Token) {
 	// spec: "In any comparison, the first operand must be assignable
 	// to the type of the second operand, or vice versa."
 	err := ""
@@ -622,7 +615,7 @@ func (check *checker) comparison(x, y *operand, op token.Token) {
 	x.typ = Typ[UntypedBool]
 }
 
-func (check *checker) shift(x, y *operand, op token.Token) {
+func (check *Checker) shift(x, y *operand, op token.Token) {
 	untypedx := isUntyped(x.typ)
 
 	// The lhs must be of integer type or be representable
@@ -723,7 +716,7 @@ var binaryOpPredicates = opPredicates{
 	token.LOR:  isBoolean,
 }
 
-func (check *checker) binary(x *operand, lhs, rhs ast.Expr, op token.Token) {
+func (check *Checker) binary(x *operand, lhs, rhs ast.Expr, op token.Token) {
 	var y operand
 
 	check.expr(x, lhs)
@@ -801,7 +794,7 @@ func (check *checker) binary(x *operand, lhs, rhs ast.Expr, op token.Token) {
 // index checks an index expression for validity.
 // If max >= 0, it is the upper bound for index.
 // If index is valid and the result i >= 0, then i is the constant value of index.
-func (check *checker) index(index ast.Expr, max int64) (i int64, valid bool) {
+func (check *Checker) index(index ast.Expr, max int64) (i int64, valid bool) {
 	var x operand
 	check.expr(&x, index)
 	if x.mode == invalid {
@@ -843,7 +836,7 @@ func (check *checker) index(index ast.Expr, max int64) (i int64, valid bool) {
 // the literal length if known (length >= 0). It returns the length of the
 // literal (maximum index value + 1).
 //
-func (check *checker) indexedElts(elts []ast.Expr, typ Type, length int64) int64 {
+func (check *Checker) indexedElts(elts []ast.Expr, typ Type, length int64) int64 {
 	visited := make(map[int64]bool, len(elts))
 	var index, max int64
 	for _, e := range elts {
@@ -902,7 +895,7 @@ const (
 // value or type. If an error occurred, x.mode is set to invalid.
 // If hint != nil, it is the type of a composite literal element.
 //
-func (check *checker) rawExpr(x *operand, e ast.Expr, hint Type) exprKind {
+func (check *Checker) rawExpr(x *operand, e ast.Expr, hint Type) exprKind {
 	if trace {
 		check.trace(e.Pos(), "%s", e)
 		check.indent++
@@ -915,6 +908,7 @@ func (check *checker) rawExpr(x *operand, e ast.Expr, hint Type) exprKind {
 	kind := check.exprInternal(x, e, hint)
 
 	// convert x into a user-friendly set of values
+	// TODO(gri) this code can be simplified
 	var typ Type
 	var val exact.Value
 	switch x.mode {
@@ -933,9 +927,9 @@ func (check *checker) rawExpr(x *operand, e ast.Expr, hint Type) exprKind {
 	if isUntyped(typ) {
 		// delay type and value recording until we know the type
 		// or until the end of type checking
-		check.rememberUntyped(x.expr, false, typ.(*Basic), val)
+		check.rememberUntyped(x.expr, false, x.mode, typ.(*Basic), val)
 	} else {
-		check.recordTypeAndValue(e, typ, val)
+		check.recordTypeAndValue(e, x.mode, typ, val)
 	}
 
 	return kind
@@ -944,7 +938,7 @@ func (check *checker) rawExpr(x *operand, e ast.Expr, hint Type) exprKind {
 // exprInternal contains the core of type checking of expressions.
 // Must only be called by rawExpr.
 //
-func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
+func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 	// make sure x has a valid state in case of bailout
 	// (was issue 5770)
 	x.mode = invalid
@@ -1088,7 +1082,7 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 			check.indexedElts(e.Elts, utyp.elem, -1)
 
 		case *Map:
-			visited := make(map[interface{}]bool, len(e.Elts))
+			visited := make(map[interface{}][]Type, len(e.Elts))
 			for _, e := range e.Elts {
 				kv, _ := e.(*ast.KeyValueExpr)
 				if kv == nil {
@@ -1103,11 +1097,24 @@ func (check *checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 					continue
 				}
 				if x.mode == constant {
-					if visited[x.val] {
+					duplicate := false
+					// if the key is of interface type, the type is also significant when checking for duplicates
+					if _, ok := utyp.key.Underlying().(*Interface); ok {
+						for _, vtyp := range visited[x.val] {
+							if Identical(vtyp, x.typ) {
+								duplicate = true
+								break
+							}
+						}
+						visited[x.val] = append(visited[x.val], x.typ)
+					} else {
+						_, duplicate = visited[x.val]
+						visited[x.val] = nil
+					}
+					if duplicate {
 						check.errorf(x.pos(), "duplicate key %s in map literal", x.val)
 						continue
 					}
-					visited[x.val] = true
 				}
 				check.exprWithHint(x, kv.Value, utyp.elem)
 				if !check.assignment(x, utyp.elem) {
@@ -1398,11 +1405,12 @@ Error:
 }
 
 // typeAssertion checks that x.(T) is legal; xtyp must be the type of x.
-func (check *checker) typeAssertion(pos token.Pos, x *operand, xtyp *Interface, T Type) {
-	method, wrongType := MissingMethod(T, xtyp, false)
+func (check *Checker) typeAssertion(pos token.Pos, x *operand, xtyp *Interface, T Type) {
+	method, wrongType := assertableTo(xtyp, T)
 	if method == nil {
 		return
 	}
+
 	var msg string
 	if wrongType {
 		msg = "wrong type for method"
@@ -1415,7 +1423,7 @@ func (check *checker) typeAssertion(pos token.Pos, x *operand, xtyp *Interface, 
 // expr typechecks expression e and initializes x with the expression value.
 // If an error occurred, x.mode is set to invalid.
 //
-func (check *checker) expr(x *operand, e ast.Expr) {
+func (check *Checker) expr(x *operand, e ast.Expr) {
 	check.rawExpr(x, e, nil)
 	var msg string
 	switch x.mode {
@@ -1436,7 +1444,7 @@ func (check *checker) expr(x *operand, e ast.Expr) {
 // If an error occurred, x.mode is set to invalid.
 // If hint != nil, it is the type of a composite literal element.
 //
-func (check *checker) exprWithHint(x *operand, e ast.Expr, hint Type) {
+func (check *Checker) exprWithHint(x *operand, e ast.Expr, hint Type) {
 	assert(hint != nil)
 	check.rawExpr(x, e, hint)
 	var msg string
@@ -1457,7 +1465,7 @@ func (check *checker) exprWithHint(x *operand, e ast.Expr, hint Type) {
 // exprOrType typechecks expression or type e and initializes x with the expression value or type.
 // If an error occurred, x.mode is set to invalid.
 //
-func (check *checker) exprOrType(x *operand, e ast.Expr) {
+func (check *Checker) exprOrType(x *operand, e ast.Expr) {
 	check.rawExpr(x, e, nil)
 	if x.mode == novalue {
 		check.errorf(x.pos(), "%s used as value or type", x)

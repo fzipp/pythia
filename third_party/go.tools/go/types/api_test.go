@@ -5,6 +5,7 @@
 package types_test
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -167,9 +168,15 @@ func TestTypesInfo(t *testing.T) {
 			`x.(int)`,
 			`(int, bool)`,
 		},
-		{`package p2; type mybool bool; var m map[string]complex128; var b mybool; func _() { _, b = m["foo"] }`,
+		// TODO(gri): uncomment if we accept issue 8189.
+		// {`package p2; type mybool bool; var m map[string]complex128; var b mybool; func _() { _, b = m["foo"] }`,
+		// 	`m["foo"]`,
+		// 	`(complex128, p2.mybool)`,
+		// },
+		// TODO(gri): remove if we accept issue 8189.
+		{`package p2; var m map[string]complex128; var b bool; func _() { _, b = m["foo"] }`,
 			`m["foo"]`,
-			`(complex128, p2.mybool)`,
+			`(complex128, bool)`,
 		},
 		{`package p3; var c chan string; var _, _ = <-c`,
 			`<-c`,
@@ -245,6 +252,117 @@ func TestTypesInfo(t *testing.T) {
 		// check that type is correct
 		if got := typ.String(); got != test.typ {
 			t.Errorf("package %s: got %s; want %s", name, got, test.typ)
+		}
+	}
+}
+
+func predString(tv TypeAndValue) string {
+	var buf bytes.Buffer
+	pred := func(b bool, s string) {
+		if b {
+			if buf.Len() > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(s)
+		}
+	}
+
+	pred(tv.IsVoid(), "void")
+	pred(tv.IsType(), "type")
+	pred(tv.IsBuiltin(), "builtin")
+	pred(tv.IsValue() && tv.Value != nil, "const")
+	pred(tv.IsValue() && tv.Value == nil, "value")
+	pred(tv.IsNil(), "nil")
+	pred(tv.Addressable(), "addressable")
+	pred(tv.Assignable(), "assignable")
+	pred(tv.HasOk(), "hasOk")
+
+	if buf.Len() == 0 {
+		return "invalid"
+	}
+	return buf.String()
+}
+
+func TestPredicatesInfo(t *testing.T) {
+	var tests = []struct {
+		src  string
+		expr string
+		pred string
+	}{
+		// void
+		{`package n0; func f() { f() }`, `f()`, `void`},
+
+		// types
+		{`package t0; type _ int`, `int`, `type`},
+		{`package t1; type _ []int`, `[]int`, `type`},
+		{`package t2; type _ func()`, `func()`, `type`},
+
+		// built-ins
+		{`package b0; var _ = len("")`, `len`, `builtin`},
+		{`package b1; var _ = (len)("")`, `(len)`, `builtin`},
+
+		// constants
+		{`package c0; var _ = 42`, `42`, `const`},
+		{`package c1; var _ = "foo" + "bar"`, `"foo" + "bar"`, `const`},
+		{`package c2; const (i = 1i; _ = i)`, `i`, `const`},
+
+		// values
+		{`package v0; var (a, b int; _ = a + b)`, `a + b`, `value`},
+		{`package v1; var _ = &[]int{1}`, `([]int literal)`, `value`},
+		{`package v2; var _ = func(){}`, `(func() literal)`, `value`},
+		{`package v4; func f() { _ = f }`, `f`, `value`},
+		{`package v3; var _ *int = nil`, `nil`, `value, nil`},
+		{`package v3; var _ *int = (nil)`, `(nil)`, `value, nil`},
+
+		// addressable (and thus assignable) operands
+		{`package a0; var (x int; _ = x)`, `x`, `value, addressable, assignable`},
+		{`package a1; var (p *int; _ = *p)`, `*p`, `value, addressable, assignable`},
+		{`package a2; var (s []int; _ = s[0])`, `s[0]`, `value, addressable, assignable`},
+		{`package a3; var (s struct{f int}; _ = s.f)`, `s.f`, `value, addressable, assignable`},
+		{`package a4; var (a [10]int; _ = a[0])`, `a[0]`, `value, addressable, assignable`},
+		{`package a5; func _(x int) { _ = x }`, `x`, `value, addressable, assignable`},
+		{`package a6; func _()(x int) { _ = x; return }`, `x`, `value, addressable, assignable`},
+		{`package a7; type T int; func (x T) _() { _ = x }`, `x`, `value, addressable, assignable`},
+		// composite literals are not addressable
+
+		// assignable but not addressable values
+		{`package s0; var (m map[int]int; _ = m[0])`, `m[0]`, `value, assignable, hasOk`},
+		{`package s1; var (m map[int]int; _, _ = m[0])`, `m[0]`, `value, assignable, hasOk`},
+
+		// hasOk expressions
+		{`package k0; var (ch chan int; _ = <-ch)`, `<-ch`, `value, hasOk`},
+		{`package k1; var (ch chan int; _, _ = <-ch)`, `<-ch`, `value, hasOk`},
+
+		// missing entries
+		// - package names are collected in the Uses map
+		// - identifiers being declared are collected in the Defs map
+		{`package m0; import "os"; func _() { _ = os.Stdout }`, `os`, `<missing>`},
+		{`package m1; import p "os"; func _() { _ = p.Stdout }`, `p`, `<missing>`},
+		{`package m2; const c = 0`, `c`, `<missing>`},
+		{`package m3; type T int`, `T`, `<missing>`},
+		{`package m4; var v int`, `v`, `<missing>`},
+		{`package m5; func f() {}`, `f`, `<missing>`},
+		{`package m6; func _(x int) {}`, `x`, `<missing>`},
+		{`package m6; func _()(x int) { return }`, `x`, `<missing>`},
+		{`package m6; type T int; func (x T) _() {}`, `x`, `<missing>`},
+	}
+
+	for _, test := range tests {
+		info := Info{Types: make(map[ast.Expr]TypeAndValue)}
+		name := mustTypecheck(t, "PredicatesInfo", test.src, &info)
+
+		// look for expression predicates
+		got := "<missing>"
+		for e, tv := range info.Types {
+			//println(name, ExprString(e))
+			if ExprString(e) == test.expr {
+				got = predString(tv)
+				break
+			}
+		}
+
+		if got != test.pred {
+			t.Errorf("package %s: got %s; want %s", name, got, test.pred)
 		}
 	}
 }
@@ -406,7 +524,31 @@ func TestInitOrderInfo(t *testing.T) {
 			"y = 1", "x = T.m",
 		}},
 		{`package p10; var (d = c + b; a = 0; b = 0; c = 0)`, []string{
-			"b = 0", "c = 0", "d = c + b", "a = 0",
+			"a = 0", "b = 0", "c = 0", "d = c + b",
+		}},
+		{`package p11; var (a = e + c; b = d + c; c = 0; d = 0; e = 0)`, []string{
+			"c = 0", "d = 0", "b = d + c", "e = 0", "a = e + c",
+		}},
+		// emit an initializer for n:1 initializations only once (not for each node
+		// on the lhs which may appear in different order in the dependency graph)
+		{`package p12; var (a = x; b = 0; x, y = m[0]; m map[int]int)`, []string{
+			"b = 0", "x, y = m[0]", "a = x",
+		}},
+		// test case from spec section on package initialization
+		{`package p12
+
+		var (
+			a = c + b
+			b = f()
+			c = f()
+			d = 3
+		)
+
+		func f() int {
+			d++
+			return d
+		}`, []string{
+			"d = 3", "b = f()", "c = f()", "a = c + b",
 		}},
 		// test case for issue 7131
 		{`package main
@@ -449,14 +591,16 @@ func TestInitOrderInfo(t *testing.T) {
 func TestFiles(t *testing.T) {
 	var sources = []string{
 		"package p; type T struct{}; func (T) m1() {}",
-		"package p; func (T) m2() {}; var _ interface{ m1(); m2() } = T{}",
-		"package p; func (T) m3() {}; var _ interface{ m1(); m2(); m3() } = T{}",
+		"package p; func (T) m2() {}; var x interface{ m1(); m2() } = T{}",
+		"package p; func (T) m3() {}; var y interface{ m1(); m2(); m3() } = T{}",
+		"package p",
 	}
 
 	var conf Config
 	fset := token.NewFileSet()
 	pkg := NewPackage("p", "p")
-	check := NewChecker(&conf, fset, pkg, nil)
+	var info Info
+	check := NewChecker(&conf, fset, pkg, &info)
 
 	for i, src := range sources {
 		filename := fmt.Sprintf("sources%d", i)
@@ -468,4 +612,292 @@ func TestFiles(t *testing.T) {
 			t.Error(err)
 		}
 	}
+
+	// check InitOrder is [x y]
+	var vars []string
+	for _, init := range info.InitOrder {
+		for _, v := range init.Lhs {
+			vars = append(vars, v.Name())
+		}
+	}
+	if got, want := fmt.Sprint(vars), "[x y]"; got != want {
+		t.Errorf("InitOrder == %s, want %s", got, want)
+	}
+}
+
+func TestSelection(t *testing.T) {
+	selections := make(map[*ast.SelectorExpr]*Selection)
+
+	fset := token.NewFileSet()
+	conf := Config{
+		Packages: make(map[string]*Package),
+		Import: func(imports map[string]*Package, path string) (*Package, error) {
+			return imports[path], nil
+		},
+	}
+	makePkg := func(path, src string) {
+		f, err := parser.ParseFile(fset, path+".go", src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg, err := conf.Check(path, fset, []*ast.File{f}, &Info{Selections: selections})
+		if err != nil {
+			t.Fatal(err)
+		}
+		conf.Packages[path] = pkg
+	}
+
+	const libSrc = `
+package lib
+type T float64
+const C T = 3
+var V T
+func F() {}
+func (T) M() {}
+`
+	const mainSrc = `
+package main
+import "lib"
+
+type A struct {
+	*B
+	C
+}
+
+type B struct {
+	b int
+}
+
+func (B) f(int)
+
+type C struct {
+	c int
+}
+
+func (C) g()
+func (*C) h()
+
+func main() {
+	// qualified identifiers
+	var _ lib.T
+        _ = lib.C
+        _ = lib.F
+        _ = lib.V
+	_ = lib.T.M
+
+	// fields
+	_ = A{}.B
+	_ = new(A).B
+
+	_ = A{}.C
+	_ = new(A).C
+
+	_ = A{}.b
+	_ = new(A).b
+
+	_ = A{}.c
+	_ = new(A).c
+
+	// methods
+        _ = A{}.f
+        _ = new(A).f
+        _ = A{}.g
+        _ = new(A).g
+        _ = new(A).h
+
+        _ = B{}.f
+        _ = new(B).f
+
+        _ = C{}.g
+        _ = new(C).g
+        _ = new(C).h
+
+	// method expressions
+        _ = A.f
+        _ = (*A).f
+        _ = B.f
+        _ = (*B).f
+}`
+
+	// TODO(adonovan): assert all map entries are used at least once.
+	wantOut := map[string][2]string{
+		"lib.T":   {"qualified ident type lib.T float64", ".[]"},
+		"lib.C":   {"qualified ident const lib.C lib.T", ".[]"},
+		"lib.F":   {"qualified ident func lib.F()", ".[]"},
+		"lib.V":   {"qualified ident var lib.V lib.T", ".[]"},
+		"lib.T.M": {"method expr (lib.T) M(lib.T)", ".[0]"},
+
+		"A{}.B":    {"field (main.A) B *main.B", ".[0]"},
+		"new(A).B": {"field (*main.A) B *main.B", "->[0]"},
+		"A{}.C":    {"field (main.A) C main.C", ".[1]"},
+		"new(A).C": {"field (*main.A) C main.C", "->[1]"},
+		"A{}.b":    {"field (main.A) b int", "->[0 0]"},
+		"new(A).b": {"field (*main.A) b int", "->[0 0]"},
+		"A{}.c":    {"field (main.A) c int", ".[1 0]"},
+		"new(A).c": {"field (*main.A) c int", "->[1 0]"},
+
+		"A{}.f":    {"method (main.A) f(int)", "->[0 0]"},
+		"new(A).f": {"method (*main.A) f(int)", "->[0 0]"},
+		"A{}.g":    {"method (main.A) g()", ".[1 0]"},
+		"new(A).g": {"method (*main.A) g()", "->[1 0]"},
+		"new(A).h": {"method (*main.A) h()", "->[1 1]"}, // TODO(gri) should this report .[1 1] ?
+		"B{}.f":    {"method (main.B) f(int)", ".[0]"},
+		"new(B).f": {"method (*main.B) f(int)", "->[0]"},
+		"C{}.g":    {"method (main.C) g()", ".[0]"},
+		"new(C).g": {"method (*main.C) g()", "->[0]"},
+		"new(C).h": {"method (*main.C) h()", "->[1]"}, // TODO(gri) should this report .[1] ?
+
+		"A.f":    {"method expr (main.A) f(main.A, int)", "->[0 0]"},
+		"(*A).f": {"method expr (*main.A) f(*main.A, int)", "->[0 0]"},
+		"B.f":    {"method expr (main.B) f(main.B, int)", ".[0]"},
+		"(*B).f": {"method expr (*main.B) f(*main.B, int)", "->[0]"},
+	}
+
+	makePkg("lib", libSrc)
+	makePkg("main", mainSrc)
+
+	for e, sel := range selections {
+		sel.String() // assertion: must not panic
+
+		start := fset.Position(e.Pos()).Offset
+		end := fset.Position(e.End()).Offset
+		syntax := mainSrc[start:end] // (all SelectorExprs are in main, not lib)
+
+		direct := "."
+		if sel.Indirect() {
+			direct = "->"
+		}
+		got := [2]string{
+			sel.String(),
+			fmt.Sprintf("%s%v", direct, sel.Index()),
+		}
+		want := wantOut[syntax]
+		if want != got {
+			t.Errorf("%s: got %q; want %q", syntax, got, want)
+		}
+
+		// We must explicitly assert properties of the
+		// Signature's receiver since it doesn't participate
+		// in Identical() or String().
+		sig, _ := sel.Type().(*Signature)
+		if sel.Kind() == MethodVal {
+			got := sig.Recv().Type()
+			want := sel.Recv()
+			if !Identical(got, want) {
+				t.Errorf("%s: Recv() = %s, want %s", got, want)
+			}
+		} else if sig != nil && sig.Recv() != nil {
+			t.Error("%s: signature has receiver %s", sig, sig.Recv().Type())
+		}
+	}
+}
+
+func TestIssue8518(t *testing.T) {
+	fset := token.NewFileSet()
+	conf := Config{
+		Packages: make(map[string]*Package),
+		Error:    func(err error) { t.Log(err) }, // don't exit after first error
+		Import: func(imports map[string]*Package, path string) (*Package, error) {
+			return imports[path], nil
+		},
+	}
+	makePkg := func(path, src string) {
+		f, err := parser.ParseFile(fset, path, src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pkg, _ := conf.Check(path, fset, []*ast.File{f}, nil) // errors logged via conf.Error
+		conf.Packages[path] = pkg
+	}
+
+	const libSrc = `
+package a 
+import "missing"
+const C1 = foo
+const C2 = missing.C
+`
+
+	const mainSrc = `
+package main
+import "a"
+var _ = a.C1
+var _ = a.C2
+`
+
+	makePkg("a", libSrc)
+	makePkg("main", mainSrc) // don't crash when type-checking this package
+}
+
+func TestLookupFieldOrMethod(t *testing.T) {
+	// Test cases assume a lookup of the form a.f or x.f, where a stands for an
+	// addressable value, and x for a non-addressable value (even though a variable
+	// for ease of test case writing).
+	var tests = []struct {
+		src      string
+		found    bool
+		index    []int
+		indirect bool
+	}{
+		// field lookups
+		{"var x T; type T struct{}", false, nil, false},
+		{"var x T; type T struct{ f int }", true, []int{0}, false},
+		{"var x T; type T struct{ a, b, f, c int }", true, []int{2}, false},
+
+		// method lookups
+		{"var a T; type T struct{}; func (T) f() {}", true, []int{0}, false},
+		{"var a *T; type T struct{}; func (T) f() {}", true, []int{0}, true},
+		{"var a T; type T struct{}; func (*T) f() {}", true, []int{0}, false},
+		{"var a *T; type T struct{}; func (*T) f() {}", true, []int{0}, true}, // TODO(gri) should this report indirect = false?
+
+		// collisions
+		{"type ( E1 struct{ f int }; E2 struct{ f int }; x struct{ E1; *E2 })", false, []int{1, 0}, false},
+		{"type ( E1 struct{ f int }; E2 struct{}; x struct{ E1; *E2 }); func (E2) f() {}", false, []int{1, 0}, false},
+
+		// outside methodset
+		// (*T).f method exists, but value of type T is not addressable
+		{"var x T; type T struct{}; func (*T) f() {}", false, nil, true},
+	}
+
+	for _, test := range tests {
+		pkg, err := pkgFor("test", "package p;"+test.src, nil)
+		if err != nil {
+			t.Errorf("%s: incorrect test case: %s", test.src, err)
+			continue
+		}
+
+		obj := pkg.Scope().Lookup("a")
+		if obj == nil {
+			if obj = pkg.Scope().Lookup("x"); obj == nil {
+				t.Errorf("%s: incorrect test case - no object a or x", test.src)
+				continue
+			}
+		}
+
+		f, index, indirect := LookupFieldOrMethod(obj.Type(), obj.Name() == "a", pkg, "f")
+		if (f != nil) != test.found {
+			if f == nil {
+				t.Errorf("%s: got no object; want one", test.src)
+			} else {
+				t.Errorf("%s: got object = %v; want none", test.src, f)
+			}
+		}
+		if !sameSlice(index, test.index) {
+			t.Errorf("%s: got index = %v; want %v", test.src, index, test.index)
+		}
+		if indirect != test.indirect {
+			t.Errorf("%s: got indirect = %v; want %v", test.src, indirect, test.indirect)
+		}
+	}
+}
+
+func sameSlice(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x := range a {
+		if x != b[i] {
+			return false
+		}
+	}
+	return true
 }

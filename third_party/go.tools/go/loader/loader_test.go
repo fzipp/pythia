@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"go/build"
 	"io"
+	"io/ioutil"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,17 +103,18 @@ func TestLoadFromArgsSource(t *testing.T) {
 	args = []string{"testdata/a.go", "testdata/b.go"}
 	prog, _, err = loadFromArgs(args)
 	if err != nil {
-		t.Errorf("loadFromArgs(%q) failed: %s", args, err)
-		return
+		t.Fatalf("loadFromArgs(%q) failed: %s", args, err)
 	}
-	if len(prog.Created) != 1 || prog.Created[0].Pkg.Path() != "P" {
-		t.Errorf("loadFromArgs(%q): got %v, want [P]", prog.Created)
+	if len(prog.Created) != 1 {
+		t.Errorf("loadFromArgs(%q): got %d items, want 1", len(prog.Created))
+	}
+	if len(prog.Created) > 0 {
+		path := prog.Created[0].Pkg.Path()
+		if path != "P" {
+			t.Errorf("loadFromArgs(%q): got %v, want [P]", prog.Created, path)
+		}
 	}
 }
-
-type nopCloser struct{ *bytes.Buffer }
-
-func (nopCloser) Close() error { return nil }
 
 type fakeFileInfo struct{}
 
@@ -124,17 +127,25 @@ func (fakeFileInfo) Mode() os.FileMode  { return 0644 }
 
 var justXgo = [1]os.FileInfo{fakeFileInfo{}} // ["x.go"]
 
-func TestTransitivelyErrorFreeFlag(t *testing.T) {
-	conf := loader.Config{
-		AllowTypeErrors: true,
-		SourceImports:   true,
+func fakeContext(pkgs map[string]string) *build.Context {
+	ctxt := build.Default // copy
+	ctxt.GOROOT = "/go"
+	ctxt.GOPATH = ""
+	ctxt.IsDir = func(path string) bool { return true }
+	ctxt.ReadDir = func(dir string) ([]os.FileInfo, error) { return justXgo[:], nil }
+	ctxt.OpenFile = func(path string) (io.ReadCloser, error) {
+		path = path[len("/go/src/"):]
+		return ioutil.NopCloser(bytes.NewBufferString(pkgs[path[0:1]])), nil
 	}
+	return &ctxt
+}
 
+func TestTransitivelyErrorFreeFlag(t *testing.T) {
 	// Create an minimal custom build.Context
 	// that fakes the following packages:
 	//
-	// a --> b --> c!   c has a TypeError
-	//   \              d and e are transitively error free.
+	// a --> b --> c!   c has an error
+	//   \              d and e are transitively error-free.
 	//    e --> d
 	//
 	// Each package [a-e] consists of one file, x.go.
@@ -145,17 +156,11 @@ func TestTransitivelyErrorFreeFlag(t *testing.T) {
 		"d": `package d;`,
 		"e": `package e; import _ "d"`,
 	}
-	ctxt := build.Default // copy
-	ctxt.GOROOT = "/go"
-	ctxt.GOPATH = ""
-	ctxt.IsDir = func(path string) bool { return true }
-	ctxt.ReadDir = func(dir string) ([]os.FileInfo, error) { return justXgo[:], nil }
-	ctxt.OpenFile = func(path string) (io.ReadCloser, error) {
-		path = path[len("/go/src/pkg/"):]
-		return nopCloser{bytes.NewBufferString(pkgs[path[0:1]])}, nil
+	conf := loader.Config{
+		AllowErrors:   true,
+		SourceImports: true,
+		Build:         fakeContext(pkgs),
 	}
-	conf.Build = &ctxt
-
 	conf.Import("a")
 
 	prog, err := conf.Load()
@@ -179,18 +184,76 @@ func TestTransitivelyErrorFreeFlag(t *testing.T) {
 			continue
 		}
 
-		if (info.TypeError != nil) != wantErr {
+		if (info.Errors != nil) != wantErr {
 			if wantErr {
-				t.Errorf("Package %q.TypeError = nil, want error", pkg.Path())
+				t.Errorf("Package %q.Error = nil, want error", pkg.Path())
 			} else {
-				t.Errorf("Package %q has unexpected TypeError: %s",
-					pkg.Path(), info.TypeError)
+				t.Errorf("Package %q has unexpected Errors: %v",
+					pkg.Path(), info.Errors)
 			}
 		}
 
 		if info.TransitivelyErrorFree != wantTEF {
 			t.Errorf("Package %q.TransitivelyErrorFree=%t, want %t",
-				info.TransitivelyErrorFree, wantTEF)
+				pkg.Path(), info.TransitivelyErrorFree, wantTEF)
 		}
+	}
+}
+
+// Test that both syntax (scan/parse) and type errors are both recorded
+// (in PackageInfo.Errors) and reported (via Config.TypeChecker.Error).
+func TestErrorReporting(t *testing.T) {
+	pkgs := map[string]string{
+		"a": `package a; import _ "b"; var x int = false`,
+		"b": `package b; 'syntax error!`,
+	}
+	conf := loader.Config{
+		AllowErrors:   true,
+		SourceImports: true,
+		Build:         fakeContext(pkgs),
+	}
+	var allErrors []error
+	conf.TypeChecker.Error = func(err error) {
+		allErrors = append(allErrors, err)
+	}
+	conf.Import("a")
+
+	prog, err := conf.Load()
+	if err != nil {
+		t.Errorf("Load failed: %s", err)
+	}
+	if prog == nil {
+		t.Fatalf("Load returned nil *Program")
+	}
+
+	hasError := func(errors []error, substr string) bool {
+		for _, err := range errors {
+			if strings.Contains(err.Error(), substr) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// TODO(adonovan): test keys of ImportMap.
+
+	// Check errors recorded in each PackageInfo.
+	for pkg, info := range prog.AllPackages {
+		switch pkg.Path() {
+		case "a":
+			if !hasError(info.Errors, "cannot convert false") {
+				t.Errorf("a.Errors = %v, want bool conversion (type) error", info.Errors)
+			}
+		case "b":
+			if !hasError(info.Errors, "rune literal not terminated") {
+				t.Errorf("b.Errors = %v, want unterminated literal (syntax) error", info.Errors)
+			}
+		}
+	}
+
+	// Check errors reported via error handler.
+	if !hasError(allErrors, "cannot convert false") ||
+		!hasError(allErrors, "rune literal not terminated") {
+		t.Errorf("allErrors = %v, want both syntax and type errors", allErrors)
 	}
 }

@@ -4,35 +4,30 @@ Pointer analysis to-do list
 ===========================
 
 CONSTRAINT GENERATION:
-- support reflection 
+- support reflection:
+  - a couple of operators are missing
+  - reflect.Values may contain lvalues (CanAddr)
 - implement native intrinsics.  These vary by platform.
-- unsafe.Pointer conversions.  Three options:
-  1) unsoundly (but type-safely) treat p=unsafe.Pointer(x) conversions as
-     allocations, losing aliases.  This is what's currently implemented.
-  2) unsoundly (but type-safely) treat p=unsafe.Pointer(x) and T(p)
-     conversions as interface boxing and unboxing operations.  
-     This may preserve some aliasing relations at little cost.
-  3) soundly track physical field offsets.  (Summarise dannyb's email here.)
-     A downside is that we can't keep the identity field of struct
-     allocations that identifies the object.    
+- add to pts(a.panic) a label representing all runtime panics, e.g.
+  runtime.{TypeAssertionError,errorString,errorCString}.
 
 OPTIMISATIONS
-- pre-solver: PE and LE via HVN/HRU.
+- pre-solver: 
+  pointer equivalence: extend HVN to HRU
+  location equivalence
 - solver: HCD, LCD.
-- use sparse bitvectors for ptsets
-- use sparse bitvectors for graph edges
-- experiment with different worklist algorithms:
-   priority queue (solver visit-time order)
-   red-black tree (node id order)
-   double-ended queue (insertion order)
-   fast doubly-linked list (See Zhanh et al PLDI'13)
-     (insertion order with fast membership test)
-  dannyb recommends sparse bitmap.
-
-API:
-- Some optimisations (e.g. LE, PE) may change the API.
-  Think about them sooner rather than later.
+- experiment with map+slice worklist in lieu of bitset.
+  It may have faster insert.
 
 MISC:
 - Test on all platforms.  
   Currently we assume these go/build tags: linux, amd64, !cgo.
+
+MAINTAINABILITY
+- Think about ways to make debugging this code easier.  PTA logs
+  routinely exceed a million lines and require training to read.
+
+BUGS: 
+- There's a crash bug in stdlib_test + reflection, rVCallConstraint.
+
+

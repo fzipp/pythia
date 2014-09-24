@@ -20,6 +20,9 @@
 //		_ = x /* ERROR "not declared" */ + 1
 //	}
 
+// TODO(gri) Also collect strict mode errors of the form /* STRICT ... */
+//           and test against strict mode.
+
 package types_test
 
 import (
@@ -57,6 +60,7 @@ var tests = [][]string{
 	{"testdata/cycles4.src"},
 	{"testdata/init0.src"},
 	{"testdata/init1.src"},
+	{"testdata/init2.src"},
 	{"testdata/decls0.src"},
 	{"testdata/decls1.src"},
 	{"testdata/decls2a.src", "testdata/decls2b.src"},
@@ -78,6 +82,7 @@ var tests = [][]string{
 	{"testdata/gotos.src"},
 	{"testdata/labels.src"},
 	{"testdata/issues.src"},
+	{"testdata/blank.src"},
 }
 
 var fset = token.NewFileSet()

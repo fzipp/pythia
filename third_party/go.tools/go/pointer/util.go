@@ -7,7 +7,13 @@ package pointer
 import (
 	"bytes"
 	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"runtime"
+	"time"
 
+	"github.com/fzipp/pythia/third_party/go.tools/container/intsets"
 	"github.com/fzipp/pythia/third_party/go.tools/go/types"
 )
 
@@ -154,10 +160,17 @@ func (a *analysis) flatten(t types.Type) []*fieldInfo {
 
 		case *types.Tuple:
 			// No identity node: tuples are never address-taken.
-			for i, n := 0, t.Len(); i < n; i++ {
-				f := t.At(i)
-				for _, fi := range a.flatten(f.Type()) {
-					fl = append(fl, &fieldInfo{typ: fi.typ, op: i, tail: fi})
+			n := t.Len()
+			if n == 1 {
+				// Don't add a fieldInfo link for singletons,
+				// e.g. in params/results.
+				fl = append(fl, a.flatten(t.At(0).Type())...)
+			} else {
+				for i := 0; i < n; i++ {
+					f := t.At(i)
+					for _, fi := range a.flatten(f.Type()) {
+						fl = append(fl, &fieldInfo{typ: fi.typ, op: i, tail: fi})
+					}
 				}
 			}
 
@@ -212,7 +225,7 @@ func (a *analysis) shouldTrack(T types.Type) bool {
 		}
 		a.trackTypes[T] = track
 		if !track && a.log != nil {
-			fmt.Fprintf(a.log, "Type not tracked: %s\n", T)
+			fmt.Fprintf(a.log, "\ttype not tracked: %s\n", T)
 		}
 	}
 	return track
@@ -246,107 +259,60 @@ func sliceToArray(slice types.Type) *types.Array {
 
 // Node set -------------------------------------------------------------------
 
-// NB, mutator methods are attached to *nodeset.
-// nodeset may be a reference, but its address matters!
-type nodeset map[nodeid]struct{}
+type nodeset struct {
+	intsets.Sparse
+}
 
-// ---- Accessors ----
-
-func (ns nodeset) String() string {
+func (ns *nodeset) String() string {
 	var buf bytes.Buffer
 	buf.WriteRune('{')
-	var sep string
-	for n := range ns {
-		fmt.Fprintf(&buf, "%sn%d", sep, n)
-		sep = ", "
+	var space [50]int
+	for i, n := range ns.AppendTo(space[:0]) {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		buf.WriteRune('n')
+		fmt.Fprintf(&buf, "%d", n)
 	}
 	buf.WriteRune('}')
 	return buf.String()
 }
 
-// diff returns the set-difference x - y.  nil => empty.
-//
-// TODO(adonovan): opt: extremely inefficient.  BDDs do this in
-// constant time.  Sparse bitvectors are linear but very fast.
-func (x nodeset) diff(y nodeset) nodeset {
-	var z nodeset
-	for k := range x {
-		if _, ok := y[k]; !ok {
-			z.add(k)
-		}
-	}
-	return z
-}
-
-// clone() returns an unaliased copy of x.
-func (x nodeset) clone() nodeset {
-	return x.diff(nil)
-}
-
-// ---- Mutators ----
-
 func (ns *nodeset) add(n nodeid) bool {
-	sz := len(*ns)
-	if *ns == nil {
-		*ns = make(nodeset)
+	return ns.Sparse.Insert(int(n))
+}
+
+func (x *nodeset) addAll(y *nodeset) bool {
+	return x.UnionWith(&y.Sparse)
+}
+
+// Profiling & debugging -------------------------------------------------------
+
+var timers = make(map[string]time.Time)
+
+func start(name string) {
+	if debugTimers {
+		timers[name] = time.Now()
+		log.Printf("%s...\n", name)
 	}
-	(*ns)[n] = struct{}{}
-	return len(*ns) > sz
 }
 
-func (x *nodeset) addAll(y nodeset) bool {
-	if y == nil {
-		return false
+func stop(name string) {
+	if debugTimers {
+		log.Printf("%s took %s\n", name, time.Since(timers[name]))
 	}
-	sz := len(*x)
-	if *x == nil {
-		*x = make(nodeset)
+}
+
+// diff runs the command "diff a b" and reports its success.
+func diff(a, b string) bool {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "plan9":
+		cmd = exec.Command("/bin/diff", "-c", a, b)
+	default:
+		cmd = exec.Command("/usr/bin/diff", "-u", a, b)
 	}
-	for n := range y {
-		(*x)[n] = struct{}{}
-	}
-	return len(*x) > sz
-}
-
-// Constraint set -------------------------------------------------------------
-
-type constraintset map[constraint]struct{}
-
-func (cs *constraintset) add(c constraint) bool {
-	sz := len(*cs)
-	if *cs == nil {
-		*cs = make(constraintset)
-	}
-	(*cs)[c] = struct{}{}
-	return len(*cs) > sz
-}
-
-// Worklist -------------------------------------------------------------------
-
-const empty nodeid = 1<<32 - 1
-
-type worklist interface {
-	add(nodeid)   // Adds a node to the set
-	take() nodeid // Takes a node from the set and returns it, or empty
-}
-
-// Simple nondeterministic worklist based on a built-in map.
-type mapWorklist struct {
-	set nodeset
-}
-
-func (w *mapWorklist) add(n nodeid) {
-	w.set[n] = struct{}{}
-}
-
-func (w *mapWorklist) take() nodeid {
-	for k := range w.set {
-		delete(w.set, k)
-		return k
-	}
-	return empty
-}
-
-func makeMapWorklist() worklist {
-	return &mapWorklist{make(nodeset)}
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run() == nil
 }

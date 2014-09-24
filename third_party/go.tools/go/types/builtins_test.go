@@ -21,11 +21,9 @@ var builtinCalls = []struct {
 	{"append", `var s []int; _ = append(s, 0)`, `func([]int, ...int) []int`},
 	{"append", `var s []int; _ = (append)(s, 0)`, `func([]int, ...int) []int`},
 	{"append", `var s []byte; _ = ((append))(s, 0)`, `func([]byte, ...byte) []byte`},
-	// Note that ...uint8 (instead of ..byte) appears below because that is the type
-	// that corresponds to Typ[byte] (an alias) - in the other cases, the type name
-	// is chosen by the source. Either way, byte and uint8 denote identical types.
-	{"append", `var s []byte; _ = append(s, "foo"...)`, `func([]byte, ...byte) []byte`},
-	{"append", `type T []byte; var s T; _ = append(s, "foo"...)`, `func(p.T, ...byte) p.T`},
+	{"append", `var s []byte; _ = append(s, "foo"...)`, `func([]byte, string...) []byte`},
+	{"append", `type T []byte; var s T; var str string; _ = append(s, str...)`, `func(p.T, string...) p.T`},
+	{"append", `type T []byte; type U string; var s T; var str U; _ = append(s, str...)`, `func(p.T, p.U...) p.T`},
 
 	{"cap", `var s [10]int; _ = cap(s)`, `invalid type`},  // constant
 	{"cap", `var s [10]int; _ = cap(&s)`, `invalid type`}, // constant
@@ -50,7 +48,10 @@ var builtinCalls = []struct {
 	{"complex", `type F64 float64; var re, im F64; _ = complex(re, im)`, `func(p.F64, p.F64) complex128`},
 
 	{"copy", `var src, dst []byte; copy(dst, src)`, `func([]byte, []byte) int`},
-	{"copy", `type T [][]int; var src, dst T; _ = copy(dst, src)`, `func([][]int, [][]int) int`},
+	{"copy", `type T [][]int; var src, dst T; _ = copy(dst, src)`, `func(p.T, p.T) int`},
+	{"copy", `var src string; var dst []byte; copy(dst, src)`, `func([]byte, string) int`},
+	{"copy", `type T string; type U []byte; var src T; var dst U; copy(dst, src)`, `func(p.U, p.T) int`},
+	{"copy", `var dst []byte; copy(dst, "hello")`, `func([]byte, string) int`},
 
 	{"delete", `var m map[string]bool; delete(m, "foo")`, `func(map[string]bool, string)`},
 	{"delete", `type (K string; V int); var m map[K]V; delete(m, "foo")`, `func(map[p.K]p.V, p.K)`},

@@ -102,6 +102,8 @@ type Config struct {
 	// Secondary errors (for instance, to enumerate all types
 	// involved in an invalid recursive type declaration) have
 	// error strings that start with a '\t' character.
+	// If Error == nil, type-checking stops with the first
+	// error found.
 	Error func(err error)
 
 	// If Import != nil, it is called for each imported package.
@@ -109,7 +111,7 @@ type Config struct {
 	Import Importer
 
 	// If Sizes != nil, it provides the sizing functions for package unsafe.
-	// Otherwise &StdSize{WordSize: 8, MaxAlign: 8} is used instead.
+	// Otherwise &StdSizes{WordSize: 8, MaxAlign: 8} is used instead.
 	Sizes Sizes
 }
 
@@ -121,24 +123,23 @@ type Config struct {
 // in a client of go/types will initialize DefaultImport to gcimporter.Import.
 var DefaultImport Importer
 
-type TypeAndValue struct {
-	Type  Type
-	Value exact.Value
-}
-
 // Info holds result type information for a type-checked package.
 // Only the information for which a map is provided is collected.
 // If the package has type errors, the collected information may
 // be incomplete.
 type Info struct {
 	// Types maps expressions to their types, and for constant
-	// expressions, their values.
-	// Identifiers are collected in Defs and Uses, not Types.
+	// expressions, their values. Invalid expressions are omitted.
 	//
-	// For an expression denoting a predeclared built-in function
-	// the recorded signature is call-site specific. If the call
-	// result is not a constant, the recorded type is an argument-
-	// specific signature. Otherwise, the recorded type is invalid.
+	// For (possibly parenthesized) identifiers denoting built-in
+	// functions, the recorded signatures are call-site specific:
+	// if the call result is not a constant, the recorded type is
+	// an argument-specific signature. Otherwise, the recorded type
+	// is invalid.
+	//
+	// Identifiers on the lhs of declarations (i.e., the identifiers
+	// which are being declared) are collected in the Defs map.
+	// Identifiers denoting packages are collected in the Uses maps.
 	Types map[ast.Expr]TypeAndValue
 
 	// Defs maps identifiers to the objects they define (including
@@ -170,7 +171,8 @@ type Info struct {
 	//
 	Implicits map[ast.Node]Object
 
-	// Selections maps selector expressions to their corresponding selections.
+	// Selections maps selector expressions (excluding qualified identifiers)
+	// to their corresponding selections.
 	Selections map[*ast.SelectorExpr]*Selection
 
 	// Scopes maps ast.Nodes to the scopes they define. Package scopes are not
@@ -206,6 +208,97 @@ type Info struct {
 	InitOrder []*Initializer
 }
 
+// TypeOf returns the type of expression e, or nil if not found.
+// Precondition: the Types, Uses and Defs maps are populated.
+//
+func (info *Info) TypeOf(e ast.Expr) Type {
+	if t, ok := info.Types[e]; ok {
+		return t.Type
+	}
+	if id, ok := e.(*ast.Ident); ok {
+		return info.ObjectOf(id).Type()
+	}
+	return nil
+}
+
+// ObjectOf returns the object denoted by the specified id,
+// or nil if not found.
+//
+// If id is an anonymous struct field, ObjectOf returns the field (*Var)
+// it uses, not the type (*TypeName) it defines.
+//
+// Precondition: the Uses and Defs maps are populated.
+//
+func (info *Info) ObjectOf(id *ast.Ident) Object {
+	if obj, ok := info.Defs[id]; ok {
+		return obj
+	}
+	return info.Uses[id]
+}
+
+// TypeAndValue reports the type and value (for constants)
+// of the corresponding expression.
+type TypeAndValue struct {
+	mode  operandMode
+	Type  Type
+	Value exact.Value
+}
+
+// TODO(gri) Consider eliminating the IsVoid predicate. Instead, report
+// "void" values as regular values but with the empty tuple type.
+
+// IsVoid reports whether the corresponding expression
+// is a function call without results.
+func (tv TypeAndValue) IsVoid() bool {
+	return tv.mode == novalue
+}
+
+// IsType reports whether the corresponding expression specifies a type.
+func (tv TypeAndValue) IsType() bool {
+	return tv.mode == typexpr
+}
+
+// IsBuiltin reports whether the corresponding expression denotes
+// a (possibly parenthesized) built-in function.
+func (tv TypeAndValue) IsBuiltin() bool {
+	return tv.mode == builtin
+}
+
+// IsValue reports whether the corresponding expression is a value.
+// Builtins are not considered values. Constant values have a non-
+// nil Value.
+func (tv TypeAndValue) IsValue() bool {
+	switch tv.mode {
+	case constant, variable, mapindex, value, commaok:
+		return true
+	}
+	return false
+}
+
+// IsNil reports whether the corresponding expression denotes the
+// predeclared value nil.
+func (tv TypeAndValue) IsNil() bool {
+	return tv.mode == value && tv.Type == Typ[UntypedNil]
+}
+
+// Addressable reports whether the corresponding expression
+// is addressable (http://golang.org/ref/spec#Address_operators).
+func (tv TypeAndValue) Addressable() bool {
+	return tv.mode == variable
+}
+
+// Assignable reports whether the corresponding expression
+// is assignable to (provided a value of the right type).
+func (tv TypeAndValue) Assignable() bool {
+	return tv.mode == variable || tv.mode == mapindex
+}
+
+// HasOk reports whether the corresponding expression may be
+// used on the lhs of a comma-ok assignment.
+func (tv TypeAndValue) HasOk() bool {
+	return tv.mode == commaok || tv.mode == mapindex
+}
+
 // An Initializer describes a package-level variable, or a list of variables in case
 // of a multi-valued initialization expression, and the corresponding initialization
 // expression.
@@ -230,7 +323,8 @@ func (init *Initializer) String() string {
 // Check type-checks a package and returns the resulting package object,
 // the first error if any, and if info != nil, additional type information.
 // The package is marked as complete if no errors occurred, otherwise it is
-// incomplete.
+// incomplete. See Config.Error for controlling behavior in the presence of
+// errors.
 //
 // The package is specified by a list of *ast.Files and corresponding
 // file set, and the package path the package is identified with.
@@ -242,8 +336,8 @@ func (conf *Config) Check(path string, fset *token.FileSet, files []*ast.File, i
 
 // AssertableTo reports whether a value of type V can be asserted to have type T.
 func AssertableTo(V *Interface, T Type) bool {
-	f, _ := MissingMethod(T, V, false)
-	return f == nil
+	m, _ := assertableTo(V, T)
+	return m == nil
 }
 
 // AssignableTo reports whether a value of type V is assignable to a variable of type T.

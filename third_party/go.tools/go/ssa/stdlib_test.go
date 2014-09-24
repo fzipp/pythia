@@ -10,51 +10,30 @@ package ssa_test
 // Run test with GOMAXPROCS=8.
 
 import (
+	"go/build"
 	"go/token"
-	"os"
-	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/fzipp/pythia/third_party/go.tools/go/buildutil"
 	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa"
 	"github.com/fzipp/pythia/third_party/go.tools/go/ssa/ssautil"
 )
 
-func allPackages() []string {
-	var pkgs []string
-	root := filepath.Join(runtime.GOROOT(), "src/pkg") + string(os.PathSeparator)
-	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		// Prune the search if we encounter any of these names:
-		switch filepath.Base(path) {
-		case "testdata", ".hg":
-			return filepath.SkipDir
-		}
-		if info.IsDir() {
-			pkg := filepath.ToSlash(strings.TrimPrefix(path, root))
-			switch pkg {
-			case "builtin", "pkg":
-				return filepath.SkipDir // skip these subtrees
-			case "":
-				return nil // ignore root of tree
-			}
-			pkgs = append(pkgs, pkg)
-		}
-
-		return nil
-	})
-	return pkgs
-}
-
 func TestStdlib(t *testing.T) {
 	// Load, parse and type-check the program.
 	t0 := time.Now()
 
-	var conf loader.Config
-	conf.SourceImports = true
-	if _, err := conf.FromArgs(allPackages(), true); err != nil {
+	// Load, parse and type-check the program.
+	ctxt := build.Default // copy
+	ctxt.GOPATH = ""      // disable GOPATH
+	conf := loader.Config{
+		SourceImports: true,
+		Build:         &ctxt,
+	}
+	if _, err := conf.FromArgs(buildutil.AllPackages(conf.Build), true); err != nil {
 		t.Errorf("FromArgs failed: %v", err)
 		return
 	}
@@ -93,8 +72,25 @@ func TestStdlib(t *testing.T) {
 		t.Errorf("Loaded only %d packages, want at least %d", numPkgs, want)
 	}
 
-	// Dump some statistics.
 	allFuncs := ssautil.AllFunctions(prog)
+
+	// Check that all non-synthetic functions have distinct names.
+	byName := make(map[string]*ssa.Function)
+	for fn := range allFuncs {
+		if fn.Synthetic == "" {
+			str := fn.String()
+			prev := byName[str]
+			byName[str] = fn
+			if prev != nil {
+				t.Errorf("%s: duplicate function named %s",
+					prog.Fset.Position(fn.Pos()), str)
+				t.Errorf("%s:   (previously defined here)",
+					prog.Fset.Position(prev.Pos()))
+			}
+		}
+	}
+
+	// Dump some statistics.
 	var numInstrs int
 	for fn := range allFuncs {
 		for _, b := range fn.Blocks {

@@ -23,7 +23,7 @@ import (
 // in the process check _and_ report type cycles. This may simplify
 // the full type-checking phase.
 //
-func (check *checker) resolveOrder() []Object {
+func (check *Checker) resolveOrder() []Object {
 	var ifaces, others []Object
 
 	// collect interface types with their dependencies, and all other objects
@@ -34,7 +34,7 @@ func (check *checker) resolveOrder() []Object {
 			for _, f := range ityp.Methods.List {
 				if len(f.Names) == 0 {
 					// Embedded interface: The type must be a (possibly
-					// qualified) identifer denoting another interface.
+					// qualified) identifier denoting another interface.
 					// Imported interfaces are already fully resolved,
 					// so we can ignore qualified identifiers.
 					if ident, _ := f.Type.(*ast.Ident); ident != nil {
@@ -72,7 +72,7 @@ func (check *checker) resolveOrder() []Object {
 }
 
 // interfaceFor returns the AST interface denoted by obj, or nil.
-func (check *checker) interfaceFor(obj Object) *ast.InterfaceType {
+func (check *Checker) interfaceFor(obj Object) *ast.InterfaceType {
 	tname, _ := obj.(*TypeName)
 	if tname == nil {
 		return nil // not a type
@@ -89,7 +89,7 @@ func (check *checker) interfaceFor(obj Object) *ast.InterfaceType {
 	return ityp
 }
 
-func (check *checker) appendInPostOrder(order *[]Object, obj Object) {
+func (check *Checker) appendInPostOrder(order *[]Object, obj Object) {
 	d := check.objMap[obj]
 	if d.mark != 0 {
 		// We've already seen this object; either because it's
@@ -106,3 +106,22 @@ func (check *checker) appendInPostOrder(order *[]Object, obj Object) {
 
 	*order = append(*order, obj)
 }
+
+func orderedSetObjects(set map[Object]bool) []Object {
+	list := make([]Object, len(set))
+	i := 0
+	for obj := range set {
+		// we don't care about the map element value
+		list[i] = obj
+		i++
+	}
+	sort.Sort(inSourceOrder(list))
+	return list
+}
+
+// inSourceOrder implements the sort.Sort interface.
+type inSourceOrder []Object
+
+func (a inSourceOrder) Len() int           { return len(a) }
+func (a inSourceOrder) Less(i, j int) bool { return a[i].Pos() < a[j].Pos() }
+func (a inSourceOrder) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }

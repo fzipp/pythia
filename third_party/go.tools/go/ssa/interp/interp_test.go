@@ -135,19 +135,23 @@ var gorootTestTests = []string{
 // These are files in go.tools/go/ssa/interp/testdata/.
 var testdataTests = []string{
 	"boundmeth.go",
+	"complit.go",
 	"coverage.go",
+	"defer.go",
 	"fieldprom.go",
 	"ifaceconv.go",
 	"ifaceprom.go",
 	"initorder.go",
 	"methprom.go",
 	"mrvchain.go",
+	"range.go",
 	"recover.go",
+	"static.go",
 	"callstack.go",
 }
 
-// These are files and packages in $GOROOT/src/pkg/.
-var gorootSrcPkgTests = []string{
+// These are files and packages in $GOROOT/src/.
+var gorootSrcTests = []string{
 	"encoding/ascii85",
 	"encoding/csv",
 	"encoding/hex",
@@ -218,6 +222,9 @@ func run(t *testing.T, dir, input string, success successPredicate) bool {
 	var mainPkg *ssa.Package
 	var initialPkgs []*ssa.Package
 	for _, info := range iprog.InitialPackages() {
+		if info.Pkg.Path() == "runtime" {
+			continue // not an initial package
+		}
 		p := prog.Package(info.Pkg)
 		initialPkgs = append(initialPkgs, p)
 		if mainPkg == nil && p.Func("main") != nil {
@@ -311,8 +318,8 @@ func TestGorootTest(t *testing.T) {
 			failures = append(failures, input)
 		}
 	}
-	for _, input := range gorootSrcPkgTests {
-		if !run(t, filepath.Join(build.Default.GOROOT, "src/pkg")+slash, input, success) {
+	for _, input := range gorootSrcTests {
+		if !run(t, filepath.Join(build.Default.GOROOT, "src")+slash, input, success) {
 			failures = append(failures, input)
 		}
 	}

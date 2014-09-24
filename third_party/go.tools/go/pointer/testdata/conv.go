@@ -40,13 +40,18 @@ func conv3() {
 	print(*y) // @pointsto main.a
 }
 
-// @warning "main.conv4 contains an unsafe.Pointer conversion"
 func conv4() {
 	// Handling of unsafe.Pointer conversion is unsound:
 	// we lose the alias to main.a and get something like new(int) instead.
-	// We require users to provide aliasing summaries.
 	p := (*int)(unsafe.Pointer(&a)) // @line c2p
 	print(p)                        // @pointsto convert@c2p:13
+}
+
+// Regression test for b/8231.
+func conv5() {
+	type P unsafe.Pointer
+	var i *struct{}
+	_ = P(i)
 }
 
 func main() {
@@ -54,4 +59,5 @@ func main() {
 	conv2()
 	conv3()
 	conv4()
+	conv5()
 }

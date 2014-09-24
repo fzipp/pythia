@@ -276,7 +276,6 @@ func ext۰reflect۰Value۰Len(fr *frame, args []value) value {
 	default:
 		panic(fmt.Sprintf("reflect.(Value).Len(%v)", v))
 	}
-	return nil // unreachable
 }
 
 func ext۰reflect۰Value۰MapIndex(fr *frame, args []value) value {
@@ -353,7 +352,6 @@ func ext۰reflect۰Value۰Pointer(fr *frame, args []value) value {
 	default:
 		panic(fmt.Sprintf("reflect.(Value).Pointer(%T)", v))
 	}
-	return nil // unreachable
 }
 
 func ext۰reflect۰Value۰Index(fr *frame, args []value) value {
@@ -368,7 +366,6 @@ func ext۰reflect۰Value۰Index(fr *frame, args []value) value {
 	default:
 		panic(fmt.Sprintf("reflect.(Value).Index(%T)", v))
 	}
-	return nil // unreachable
 }
 
 func ext۰reflect۰Value۰Bool(fr *frame, args []value) value {
@@ -398,7 +395,6 @@ func ext۰reflect۰Value۰Elem(fr *frame, args []value) value {
 	default:
 		panic(fmt.Sprintf("reflect.(Value).Elem(%T)", x))
 	}
-	return nil // unreachable
 }
 
 func ext۰reflect۰Value۰Field(fr *frame, args []value) value {
@@ -440,7 +436,6 @@ func ext۰reflect۰Value۰Int(fr *frame, args []value) value {
 	default:
 		panic(fmt.Sprintf("reflect.(Value).Int(%T)", x))
 	}
-	return nil // unreachable
 }
 
 func ext۰reflect۰Value۰IsNil(fr *frame, args []value) value {
@@ -467,7 +462,6 @@ func ext۰reflect۰Value۰IsNil(fr *frame, args []value) value {
 	default:
 		panic(fmt.Sprintf("reflect.(Value).IsNil(%T)", x))
 	}
-	return nil // unreachable
 }
 
 func ext۰reflect۰Value۰IsValid(fr *frame, args []value) value {
@@ -497,9 +491,8 @@ func newMethod(pkg *ssa.Package, recvType types.Type, name string) *ssa.Function
 	// now, we'll set it to always be false since we're only
 	// concerned with rtype.  Encapsulate this better.
 	sig := types.NewSignature(nil, types.NewVar(token.NoPos, nil, "recv", recvType), nil, nil, false)
-	fn := ssa.NewFunction(name, sig, "fake reflect method")
+	fn := pkg.Prog.NewFunction(name, sig, "fake reflect method")
 	fn.Pkg = pkg
-	fn.Prog = pkg.Prog
 	return fn
 }
 

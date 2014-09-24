@@ -16,7 +16,7 @@ import (
 
 func newCorpus(t *testing.T) *Corpus {
 	c := NewCorpus(mapfs.New(map[string]string{
-		"src/pkg/foo/foo.go": `// Package foo is an example.
+		"src/foo/foo.go": `// Package foo is an example.
 package foo
 
 import "bar"
@@ -32,20 +32,20 @@ func New() *Foo {
    return new(Foo)
 }
 `,
-		"src/pkg/bar/bar.go": `// Package bar is another example to test races.
+		"src/bar/bar.go": `// Package bar is another example to test races.
 package bar
 `,
-		"src/pkg/other/bar/bar.go": `// Package bar is another bar package.
+		"src/other/bar/bar.go": `// Package bar is another bar package.
 package bar
 func X() {}
 `,
-		"src/pkg/skip/skip.go": `// Package skip should be skipped.
+		"src/skip/skip.go": `// Package skip should be skipped.
 package skip
 func Skip() {}
 `,
-		"src/pkg/bar/readme.txt": `Whitelisted text file.
+		"src/bar/readme.txt": `Whitelisted text file.
 `,
-		"src/pkg/bar/baz.zzz": `Text file not whitelisted.
+		"src/bar/baz.zzz": `Text file not whitelisted.
 `,
 	}))
 	c.IndexEnabled = true
@@ -231,23 +231,24 @@ func checkIdents(t *testing.T, c *Corpus, ix *Index) {
 		want = map[SpotKind]map[string][]Ident{
 			PackageClause: map[string][]Ident{
 				"bar": []Ident{
-					{"/src/pkg/bar", "bar", "bar", "Package bar is another example to test races."},
-					{"/src/pkg/other/bar", "bar", "bar", "Package bar is another bar package."},
+					{"bar", "bar", "bar", "Package bar is another example to test races."},
+					{"other/bar", "bar", "bar", "Package bar is another bar package."},
 				},
-				"foo": []Ident{{"/src/pkg/foo", "foo", "foo", "Package foo is an example."}},
+				"foo":   []Ident{{"foo", "foo", "foo", "Package foo is an example."}},
+				"other": []Ident{{"other/bar", "bar", "bar", "Package bar is another bar package."}},
 			},
 			ConstDecl: map[string][]Ident{
-				"Pi": []Ident{{"/src/pkg/foo", "foo", "Pi", ""}},
+				"Pi": []Ident{{"foo", "foo", "Pi", ""}},
 			},
 			VarDecl: map[string][]Ident{
-				"Foos": []Ident{{"/src/pkg/foo", "foo", "Foos", ""}},
+				"Foos": []Ident{{"foo", "foo", "Foos", ""}},
 			},
 			TypeDecl: map[string][]Ident{
-				"Foo": []Ident{{"/src/pkg/foo", "foo", "Foo", "Foo is stuff."}},
+				"Foo": []Ident{{"foo", "foo", "Foo", "Foo is stuff."}},
 			},
 			FuncDecl: map[string][]Ident{
-				"New": []Ident{{"/src/pkg/foo", "foo", "New", ""}},
-				"X":   []Ident{{"/src/pkg/other/bar", "bar", "X", ""}},
+				"New": []Ident{{"foo", "foo", "New", ""}},
+				"X":   []Ident{{"other/bar", "bar", "X", ""}},
 			},
 		}
 	}
@@ -257,6 +258,11 @@ func checkIdents(t *testing.T, c *Corpus, ix *Index) {
 }
 
 func TestIdentResultSort(t *testing.T) {
+	ic := map[string]int{
+		"/a/b/pkg1": 10,
+		"/a/b/pkg2": 2,
+		"/b/d/pkg3": 20,
+	}
 	for _, tc := range []struct {
 		ir  []Ident
 		exp []Ident
@@ -268,19 +274,30 @@ func TestIdentResultSort(t *testing.T) {
 				{"/a/b/pkg1", "pkg1", "MyFunc1", ""},
 			},
 			exp: []Ident{
+				{"/b/d/pkg3", "pkg3", "MyFunc3", ""},
 				{"/a/b/pkg1", "pkg1", "MyFunc1", ""},
 				{"/a/b/pkg2", "pkg2", "MyFunc2", ""},
-				{"/b/d/pkg3", "pkg3", "MyFunc3", ""},
+			},
+		},
+		{
+			ir: []Ident{
+				{"/a/a/pkg1", "pkg1", "MyFunc1", ""},
+				{"/a/b/pkg1", "pkg1", "MyFunc1", ""},
+			},
+			exp: []Ident{
+				{"/a/b/pkg1", "pkg1", "MyFunc1", ""},
+				{"/a/a/pkg1", "pkg1", "MyFunc1", ""},
 			},
 		},
 	} {
-		if sort.Sort(byPackage(tc.ir)); !reflect.DeepEqual(tc.ir, tc.exp) {
+		if sort.Sort(byImportCount{tc.ir, ic}); !reflect.DeepEqual(tc.ir, tc.exp) {
 			t.Errorf("got: %v, want %v", tc.ir, tc.exp)
 		}
 	}
 }
 
-func TestIdentPackageFilter(t *testing.T) {
+func TestIdentFilter(t *testing.T) {
+	ic := map[string]int{}
 	for _, tc := range []struct {
 		ir  []Ident
 		pak string
@@ -298,7 +315,8 @@ func TestIdentPackageFilter(t *testing.T) {
 			},
 		},
 	} {
-		if res := byPackage(tc.ir).filter(tc.pak); !reflect.DeepEqual(res, tc.exp) {
+		res := byImportCount{tc.ir, ic}.filter(tc.pak)
+		if !reflect.DeepEqual(res, tc.exp) {
 			t.Errorf("got: %v, want %v", res, tc.exp)
 		}
 	}

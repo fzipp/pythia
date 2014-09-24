@@ -48,15 +48,15 @@ func referrers(o *Oracle, qpos *QueryPos) (queryResult, error) {
 }
 
 // same reports whether x and y are identical, or both are PkgNames
-// referring to the same Package.
+// that import the same Package.
 //
 func sameObj(x, y types.Object) bool {
 	if x == y {
 		return true
 	}
-	if _, ok := x.(*types.PkgName); ok {
-		if _, ok := y.(*types.PkgName); ok {
-			return x.Pkg() == y.Pkg()
+	if x, ok := x.(*types.PkgName); ok {
+		if y, ok := y.(*types.PkgName); ok {
+			return x.Imported() == y.Imported()
 		}
 	}
 	return false
@@ -71,7 +71,7 @@ func (p byNamePos) Less(i, j int) bool { return p[i].NamePos < p[j].NamePos }
 func (p byNamePos) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
 type referrersResult struct {
-	query *ast.Ident   // identifer of query
+	query *ast.Ident   // identifier of query
 	obj   types.Object // object it denotes
 	refs  []*ast.Ident // set of all other references to it
 }

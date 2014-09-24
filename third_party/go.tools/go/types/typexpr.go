@@ -19,7 +19,7 @@ import (
 // If an error occurred, x.mode is set to invalid.
 // For the meaning of def and path, see check.typ, below.
 //
-func (check *checker) ident(x *operand, e *ast.Ident, def *Named, path []*TypeName) {
+func (check *Checker) ident(x *operand, e *ast.Ident, def *Named, path []*TypeName) {
 	x.mode = invalid
 	x.expr = e
 
@@ -88,6 +88,9 @@ func (check *checker) ident(x *operand, e *ast.Ident, def *Named, path []*TypeNa
 	case *Var:
 		obj.used = true
 		check.addDeclDep(obj)
+		if typ == Typ[Invalid] {
+			return
+		}
 		x.mode = variable
 
 	case *Func:
@@ -117,7 +120,7 @@ func (check *checker) ident(x *operand, e *ast.Ident, def *Named, path []*TypeNa
 // any components of e are type-checked. Path contains the path of named types
 // referring to this type.
 //
-func (check *checker) typExpr(e ast.Expr, def *Named, path []*TypeName) (T Type) {
+func (check *Checker) typExpr(e ast.Expr, def *Named, path []*TypeName) (T Type) {
 	if trace {
 		check.trace(e.Pos(), "%s", e)
 		check.indent++
@@ -129,31 +132,40 @@ func (check *checker) typExpr(e ast.Expr, def *Named, path []*TypeName) (T Type)
 
 	T = check.typExprInternal(e, def, path)
 	assert(isTyped(T))
-	check.recordTypeAndValue(e, T, nil)
+	check.recordTypeAndValue(e, typexpr, T, nil)
 
 	return
 }
 
-func (check *checker) typ(e ast.Expr) Type {
+func (check *Checker) typ(e ast.Expr) Type {
 	return check.typExpr(e, nil, nil)
 }
 
 // funcType type-checks a function or method type and returns its signature.
-func (check *checker) funcType(sig *Signature, recv *ast.FieldList, ftyp *ast.FuncType) *Signature {
+func (check *Checker) funcType(sig *Signature, recvPar *ast.FieldList, ftyp *ast.FuncType) *Signature {
 	scope := NewScope(check.scope, "function")
 	check.recordScope(ftyp, scope)
 
-	recv_, _ := check.collectParams(scope, recv, false)
+	recvList, _ := check.collectParams(scope, recvPar, false)
 	params, variadic := check.collectParams(scope, ftyp.Params, true)
 	results, _ := check.collectParams(scope, ftyp.Results, false)
 
-	if len(recv_) > 0 {
-		// There must be exactly one receiver.
-		if len(recv_) > 1 {
-			check.invalidAST(recv_[1].Pos(), "method must have exactly one receiver")
-			// ok to continue
+	if recvPar != nil {
+		// recv parameter list present (may be empty)
+		// spec: "The receiver is specified via an extra parameter section preceeding the
+		// method name. That parameter section must declare a single parameter, the receiver."
+		var recv *Var
+		switch len(recvList) {
+		case 0:
+			check.error(recvPar.Pos(), "method is missing receiver")
+			recv = NewParam(0, nil, "", Typ[Invalid]) // ignore recv below
+		default:
+			// more than one receiver
+			check.error(recvList[len(recvList)-1].Pos(), "method must have exactly one receiver")
+			fallthrough // continue with first receiver
+		case 1:
+			recv = recvList[0]
 		}
-		recv := recv_[0]
 		// spec: "The receiver type must be of the form T or *T where T is a type name."
 		// (ignore invalid types - error was reported before)
 		if t, _ := deref(recv.typ); t != Typ[Invalid] {
@@ -198,7 +210,7 @@ func (check *checker) funcType(sig *Signature, recv *ast.FieldList, ftyp *ast.Fu
 // typExprInternal drives type checking of types.
 // Must only be called by typExpr.
 //
-func (check *checker) typExprInternal(e ast.Expr, def *Named, path []*TypeName) Type {
+func (check *Checker) typExprInternal(e ast.Expr, def *Named, path []*TypeName) Type {
 	switch e := e.(type) {
 	case *ast.BadExpr:
 		// ignore - error reported before
@@ -334,7 +346,7 @@ func (check *checker) typExprInternal(e ast.Expr, def *Named, path []*TypeName) 
 // and returns the typ of e, or nil.
 // If e is neither a type nor nil, typOrNil returns Typ[Invalid].
 //
-func (check *checker) typOrNil(e ast.Expr) Type {
+func (check *Checker) typOrNil(e ast.Expr) Type {
 	var x operand
 	check.rawExpr(&x, e, nil)
 	switch x.mode {
@@ -355,7 +367,7 @@ func (check *checker) typOrNil(e ast.Expr) Type {
 	return Typ[Invalid]
 }
 
-func (check *checker) arrayLength(e ast.Expr) int64 {
+func (check *Checker) arrayLength(e ast.Expr) int64 {
 	var x operand
 	check.expr(&x, e)
 	if x.mode != constant {
@@ -376,7 +388,7 @@ func (check *checker) arrayLength(e ast.Expr) int64 {
 	return n
 }
 
-func (check *checker) collectParams(scope *Scope, list *ast.FieldList, variadicOk bool) (params []*Var, variadic bool) {
+func (check *Checker) collectParams(scope *Scope, list *ast.FieldList, variadicOk bool) (params []*Var, variadic bool) {
 	if list == nil {
 		return
 	}
@@ -431,7 +443,7 @@ func (check *checker) collectParams(scope *Scope, list *ast.FieldList, variadicO
 	return
 }
 
-func (check *checker) declareInSet(oset *objset, pos token.Pos, obj Object) bool {
+func (check *Checker) declareInSet(oset *objset, pos token.Pos, obj Object) bool {
 	if alt := oset.insert(obj); alt != nil {
 		check.errorf(pos, "%s redeclared", obj.Name())
 		check.reportAltDecl(alt)
@@ -440,7 +452,7 @@ func (check *checker) declareInSet(oset *objset, pos token.Pos, obj Object) bool
 	return true
 }
 
-func (check *checker) interfaceType(iface *Interface, ityp *ast.InterfaceType, def *Named, path []*TypeName) {
+func (check *Checker) interfaceType(iface *Interface, ityp *ast.InterfaceType, def *Named, path []*TypeName) {
 	// empty interface: common case
 	if ityp.Methods == nil {
 		return
@@ -472,6 +484,12 @@ func (check *checker) interfaceType(iface *Interface, ityp *ast.InterfaceType, d
 			// and we don't care if a constructed AST has more.
 			name := f.Names[0]
 			pos := name.Pos()
+			// spec: "As with all method sets, in an interface type,
+			// each method must have a unique non-blank name."
+			if name.Name == "_" {
+				check.errorf(pos, "invalid method name _")
+				continue
+			}
 			// Don't type-check signature yet - use an
 			// empty signature now and update it later.
 			// Since we know the receiver, set it up now
@@ -483,10 +501,6 @@ func (check *checker) interfaceType(iface *Interface, ityp *ast.InterfaceType, d
 			sig := new(Signature)
 			sig.recv = NewVar(pos, check.pkg, "", recvTyp)
 			m := NewFunc(pos, check.pkg, name.Name, sig)
-			// spec: "As with all method sets, in an interface type,
-			// each method must have a unique name."
-			// (The spec does not exclude blank _ identifiers for
-			// interface methods.)
 			if check.declareInSet(&mset, pos, m) {
 				iface.methods = append(iface.methods, m)
 				iface.allMethods = append(iface.allMethods, m)
@@ -587,7 +601,7 @@ func (a byUniqueMethodName) Len() int           { return len(a) }
 func (a byUniqueMethodName) Less(i, j int) bool { return a[i].Id() < a[j].Id() }
 func (a byUniqueMethodName) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 
-func (check *checker) tag(t *ast.BasicLit) string {
+func (check *Checker) tag(t *ast.BasicLit) string {
 	if t != nil {
 		if t.Kind == token.STRING {
 			if val, err := strconv.Unquote(t.Value); err == nil {
@@ -599,7 +613,7 @@ func (check *checker) tag(t *ast.BasicLit) string {
 	return ""
 }
 
-func (check *checker) structType(styp *Struct, e *ast.StructType, path []*TypeName) {
+func (check *Checker) structType(styp *Struct, e *ast.StructType, path []*TypeName) {
 	list := e.Fields
 	if list == nil {
 		return

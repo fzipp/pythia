@@ -7,6 +7,7 @@ package ssa
 // Helpers for emitting SSA instructions.
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 
@@ -161,11 +162,6 @@ func isValuePreserving(ut_src, ut_dst types.Type) bool {
 		// Conversion between pointers with identical base types?
 		_, ok := ut_src.(*types.Pointer)
 		return ok
-
-	case *types.Signature:
-		// Conversion from (T) func f() method to f(T) function?
-		_, ok := ut_src.(*types.Signature)
-		return ok
 	}
 	return false
 }
@@ -233,14 +229,22 @@ func emitConv(f *Function, val Value, typ types.Type) Value {
 		// e.g. string -> []byte/[]rune.
 	}
 
-	// A representation-changing conversion.
-	c := &Convert{X: val}
-	c.setType(typ)
-	return f.emit(c)
+	// A representation-changing conversion?
+	// At least one of {ut_src,ut_dst} must be *Basic.
+	// (The other may be []byte or []rune.)
+	_, ok1 := ut_src.(*types.Basic)
+	_, ok2 := ut_dst.(*types.Basic)
+	if ok1 || ok2 {
+		c := &Convert{X: val}
+		c.setType(typ)
+		return f.emit(c)
+	}
+
+	panic(fmt.Sprintf("in %s: cannot convert %s (%s) to %s", f, val, val.Type(), typ))
 }
 
 // emitStore emits to f an instruction to store value val at location
-// addr, applying implicit conversions as required by assignabilty rules.
+// addr, applying implicit conversions as required by assignability rules.
 //
 func emitStore(f *Function, addr, val Value) *Store {
 	s := &Store{
@@ -384,15 +388,16 @@ func emitImplicitSelections(f *Function, v Value, indices []int) Value {
 // If wantAddr, the input must be a pointer-to-struct and the result
 // will be the field's address; otherwise the result will be the
 // field's value.
+// Ident id is used for position and debug info.
 //
-func emitFieldSelection(f *Function, v Value, index int, wantAddr bool, pos token.Pos) Value {
+func emitFieldSelection(f *Function, v Value, index int, wantAddr bool, id *ast.Ident) Value {
 	fld := deref(v.Type()).Underlying().(*types.Struct).Field(index)
 	if isPointer(v.Type()) {
 		instr := &FieldAddr{
 			X:     v,
 			Field: index,
 		}
-		instr.setPos(pos)
+		instr.setPos(id.Pos())
 		instr.setType(types.NewPointer(fld.Type()))
 		v = f.emit(instr)
 		// Load the field's value iff we don't want its address.
@@ -404,11 +409,30 @@ func emitFieldSelection(f *Function, v Value, index int, wantAddr bool, pos toke
 			X:     v,
 			Field: index,
 		}
-		instr.setPos(pos)
+		instr.setPos(id.Pos())
 		instr.setType(fld.Type())
 		v = f.emit(instr)
 	}
+	emitDebugRef(f, id, v, wantAddr)
 	return v
+}
+
+// zeroValue emits to f code to produce a zero value of type t,
+// and returns it.
+//
+func zeroValue(f *Function, t types.Type) Value {
+	switch t.Underlying().(type) {
+	case *types.Struct, *types.Array:
+		return emitLoad(f, f.addLocal(t, token.NoPos))
+	default:
+		return zeroConst(t)
+	}
+}
+
+// emitMemClear emits to f code to zero the value pointed to by ptr.
+func emitMemClear(f *Function, ptr Value) {
+	// TODO(adonovan): define and use a 'memclr' intrinsic for aggregate types.
+	emitStore(f, ptr, zeroValue(f, deref(ptr.Type())))
 }
 
 // createRecoverBlock emits to f a block of code to return after a
@@ -439,16 +463,9 @@ func createRecoverBlock(f *Function) {
 		R := f.Signature.Results()
 		for i, n := 0, R.Len(); i < n; i++ {
 			T := R.At(i).Type()
-			var v Value
 
 			// Return zero value of each result type.
-			switch T.Underlying().(type) {
-			case *types.Struct, *types.Array:
-				v = emitLoad(f, f.addLocal(T, token.NoPos))
-			default:
-				v = zeroConst(T)
-			}
-			results = append(results, v)
+			results = append(results, zeroValue(f, T))
 		}
 	}
 	f.emit(&Return{Results: results})

@@ -11,7 +11,7 @@
 // progressively populated as analysis facts are derived.
 //
 // The Result is a mapping from each godoc file URL
-// (e.g. /src/pkg/fmt/print.go) to information about that file.  The
+// (e.g. /src/fmt/print.go) to information about that file.  The
 // information is a list of HTML markup links and a JSON array of
 // structured data values.  Some of the links call client-side
 // JavaScript functions that index this array.
@@ -36,15 +36,16 @@
 // CHANNEL PEERS: for each channel operation make/<-/close, the set of
 // other channel ops that alias the same channel(s).
 //
-// ERRORS: for each locus of a static (go/types) error, the location
-// is highlighted in red and hover text provides the compiler error
-// message.
+// ERRORS: for each locus of a frontend (scanner/parser/type) error, the
+// location is highlighted in red and hover text provides the compiler
+// error message.
 //
 package analysis
 
 import (
 	"fmt"
 	"go/build"
+	"go/scanner"
 	"go/token"
 	"html"
 	"io"
@@ -122,6 +123,13 @@ func (e errorLink) Write(w io.Writer, _ int, start bool) {
 
 // -- fileInfo ---------------------------------------------------------
 
+// FileInfo holds analysis information for the source file view.
+// Clients must not mutate it.
+type FileInfo struct {
+	Data  []interface{} // JSON serializable values
+	Links []Link        // HTML link markup
+}
+
 // A fileInfo is the server's store of hyperlinks and JSON data for a
 // particular file.
 type fileInfo struct {
@@ -153,20 +161,28 @@ func (fi *fileInfo) addData(x interface{}) int {
 	return index
 }
 
-// get returns new slices containing opaque JSON values and the HTML link markup for fi.
-// Callers must not mutate the elements.
-func (fi *fileInfo) get() (data []interface{}, links []Link) {
+// get returns the file info in external form.
+// Callers must not mutate its fields.
+func (fi *fileInfo) get() FileInfo {
+	var r FileInfo
 	// Copy slices, to avoid races.
 	fi.mu.Lock()
-	data = append(data, fi.data...)
+	r.Data = append(r.Data, fi.data...)
 	if !fi.sorted {
 		sort.Sort(linksByStart(fi.links))
 		fi.sorted = true
 	}
-	links = append(links, fi.links...)
+	r.Links = append(r.Links, fi.links...)
 	fi.mu.Unlock()
+	return r
+}
 
-	return
+// PackageInfo holds analysis information for the package view.
+// Clients must not mutate it.
+type PackageInfo struct {
+	CallGraph      []*PCGNodeJSON
+	CallGraphIndex map[string]int
+	Types          []*TypeInfoJSON
 }
 
 type pkgInfo struct {
@@ -189,16 +205,17 @@ func (pi *pkgInfo) addType(t *TypeInfoJSON) {
 	pi.mu.Unlock()
 }
 
-// get returns new slices of JSON values for the callgraph and type info for pi.
-// Callers must not mutate the slice elements or the map.
-func (pi *pkgInfo) get() (callGraph []*PCGNodeJSON, callGraphIndex map[string]int, types []*TypeInfoJSON) {
+// get returns the package info in external form.
+// Callers must not mutate its fields.
+func (pi *pkgInfo) get() PackageInfo {
+	var r PackageInfo
 	// Copy slices, to avoid races.
 	pi.mu.Lock()
-	callGraph = append(callGraph, pi.callGraph...)
-	callGraphIndex = pi.callGraphIndex
-	types = append(types, pi.types...)
+	r.CallGraph = append(r.CallGraph, pi.callGraph...)
+	r.CallGraphIndex = pi.callGraphIndex
+	r.Types = append(r.Types, pi.types...)
 	pi.mu.Unlock()
-	return
+	return r
 }
 
 // -- Result -----------------------------------------------------------
@@ -208,6 +225,7 @@ func (pi *pkgInfo) get() (callGraph []*PCGNodeJSON, callGraphIndex map[string]in
 // and JavaScript data referenced by the links.
 type Result struct {
 	mu        sync.Mutex           // guards maps (but not their contents)
+	status    string               // global analysis status
 	fileInfos map[string]*fileInfo // keys are godoc file URLs
 	pkgInfos  map[string]*pkgInfo  // keys are import paths
 }
@@ -228,12 +246,26 @@ func (res *Result) fileInfo(url string) *fileInfo {
 	return fi
 }
 
+// Status returns a human-readable description of the current analysis status.
+func (res *Result) Status() string {
+	res.mu.Lock()
+	defer res.mu.Unlock()
+	return res.status
+}
+
+func (res *Result) setStatusf(format string, args ...interface{}) {
+	res.mu.Lock()
+	res.status = fmt.Sprintf(format, args...)
+	log.Printf(format, args...)
+	res.mu.Unlock()
+}
+
 // FileInfo returns new slices containing opaque JSON values and the
 // HTML link markup for the specified godoc file URL.  Thread-safe.
 // Callers must not mutate the elements.
 // It returns "zero" if no data is available.
 //
-func (res *Result) FileInfo(url string) ([]interface{}, []Link) {
+func (res *Result) FileInfo(url string) (fi FileInfo) {
 	return res.fileInfo(url).get()
 }
 
@@ -255,10 +287,10 @@ func (res *Result) pkgInfo(importPath string) *pkgInfo {
 
 // PackageInfo returns new slices of JSON values for the callgraph and
 // type info for the specified package.  Thread-safe.
-// Callers must not mutate the elements.
+// Callers must not mutate its fields.
 // PackageInfo returns "zero" if no data is available.
 //
-func (res *Result) PackageInfo(importPath string) ([]*PCGNodeJSON, map[string]int, []*TypeInfoJSON) {
+func (res *Result) PackageInfo(importPath string) PackageInfo {
 	return res.pkgInfo(importPath).get()
 }
 
@@ -270,13 +302,17 @@ type analysis struct {
 	ops       []chanOp       // all channel ops in program
 	allNamed  []*types.Named // all named types in the program
 	ptaConfig pointer.Config
-	path2url  map[string]string // maps openable path to godoc file URL (/src/pkg/fmt/print.go)
+	path2url  map[string]string // maps openable path to godoc file URL (/src/fmt/print.go)
 	pcgs      map[*ssa.Package]*packageCallGraph
 }
 
-// fileAndOffset returns the file and offset for a given position.
+// fileAndOffset returns the file and offset for a given pos.
 func (a *analysis) fileAndOffset(pos token.Pos) (fi *fileInfo, offset int) {
-	posn := a.prog.Fset.Position(pos)
+	return a.fileAndOffsetPosn(a.prog.Fset.Position(pos))
+}
+
+// fileAndOffsetPosn returns the file and offset for a given position.
+func (a *analysis) fileAndOffsetPosn(posn token.Position) (fi *fileInfo, offset int) {
 	url := a.path2url[posn.Filename]
 	return a.result.fileInfo(url), posn.Offset
 }
@@ -301,20 +337,19 @@ func (a *analysis) posURL(pos token.Pos, len int) string {
 //
 func Run(pta bool, result *Result) {
 	conf := loader.Config{
-		SourceImports:   true,
-		AllowTypeErrors: true,
+		SourceImports: true,
+		AllowErrors:   true,
 	}
 
-	errors := make(map[token.Pos][]string)
-	conf.TypeChecker.Error = func(e error) {
-		err := e.(types.Error)
-		errors[err.Pos] = append(errors[err.Pos], err.Msg)
-	}
+	// Silence the default error handler.
+	// Don't print all errors; we'll report just
+	// one per errant package later.
+	conf.TypeChecker.Error = func(e error) {}
 
 	var roots, args []string // roots[i] ends with os.PathSeparator
 
 	// Enumerate packages in $GOROOT.
-	root := filepath.Join(runtime.GOROOT(), "src", "pkg") + string(os.PathSeparator)
+	root := filepath.Join(runtime.GOROOT(), "src") + string(os.PathSeparator)
 	roots = append(roots, root)
 	args = allPackages(root)
 	log.Printf("GOROOT=%s: %s\n", root, args)
@@ -333,19 +368,26 @@ func Run(pta bool, result *Result) {
 	//args = []string{"fmt"}
 
 	if _, err := conf.FromArgs(args, true); err != nil {
-		log.Print(err) // import error
+		// TODO(adonovan): degrade gracefully, not fail totally.
+		// (The crippling case is a parse error in an external test file.)
+		result.setStatusf("Analysis failed: %s.", err) // import error
 		return
 	}
 
-	log.Print("Loading and type-checking packages...")
+	result.setStatusf("Loading and type-checking packages...")
 	iprog, err := conf.Load()
 	if iprog != nil {
+		// Report only the first error of each package.
+		for _, info := range iprog.AllPackages {
+			for _, err := range info.Errors {
+				fmt.Fprintln(os.Stderr, err)
+				break
+			}
+		}
 		log.Printf("Loaded %d packages.", len(iprog.AllPackages))
 	}
 	if err != nil {
-		// TODO(adonovan): loader: don't give up just because
-		// of one parse error.
-		log.Print(err) // parse error in some package
+		result.setStatusf("Loading failed: %s.\n", err)
 		return
 	}
 
@@ -364,12 +406,12 @@ func Run(pta bool, result *Result) {
 			mainPkgs = append(mainPkgs, pkg)
 		}
 	}
-	log.Print("Main packages: ", mainPkgs)
+	log.Print("Transitively error-free main packages: ", mainPkgs)
 
 	// Build SSA code for bodies of all functions in the whole program.
-	log.Print("Building SSA...")
+	result.setStatusf("Constructing SSA form...")
 	prog.BuildAll()
-	log.Print("SSA building complete")
+	log.Print("SSA construction complete")
 
 	a := analysis{
 		result: result,
@@ -378,17 +420,20 @@ func Run(pta bool, result *Result) {
 	}
 
 	// Build a mapping from openable filenames to godoc file URLs,
-	// i.e. "/src/pkg/" plus path relative to GOROOT/src/pkg or GOPATH[i]/src.
+	// i.e. "/src/" plus path relative to GOROOT/src or GOPATH[i]/src.
 	a.path2url = make(map[string]string)
 	for _, info := range iprog.AllPackages {
 	nextfile:
 		for _, f := range info.Files {
+			if f.Pos() == 0 {
+				continue // e.g. files generated by cgo
+			}
 			abs := iprog.Fset.File(f.Pos()).Name()
 			// Find the root to which this file belongs.
 			for _, root := range roots {
 				rel := strings.TrimPrefix(abs, root)
 				if len(rel) < len(abs) {
-					a.path2url[abs] = "/src/pkg/" + rel
+					a.path2url[abs] = "/src/" + filepath.ToSlash(rel)
 					continue nextfile
 				}
 			}
@@ -398,12 +443,29 @@ func Run(pta bool, result *Result) {
 		}
 	}
 
-	// Add links for type-checker errors.
+	// Add links for scanner, parser, type-checker errors.
 	// TODO(adonovan): fix: these links can overlap with
 	// identifier markup, causing the renderer to emit some
 	// characters twice.
-	for pos, errs := range errors {
-		fi, offset := a.fileAndOffset(pos)
+	errors := make(map[token.Position][]string)
+	for _, info := range iprog.AllPackages {
+		for _, err := range info.Errors {
+			switch err := err.(type) {
+			case types.Error:
+				posn := a.prog.Fset.Position(err.Pos)
+				errors[posn] = append(errors[posn], err.Msg)
+			case scanner.ErrorList:
+				for _, e := range err {
+					errors[e.Pos] = append(errors[e.Pos], e.Msg)
+				}
+			default:
+				log.Printf("Package %q has error (%T) without position: %v\n",
+					info.Pkg.Path(), err, err)
+			}
+		}
+	}
+	for posn, errs := range errors {
+		fi, offset := a.fileAndOffsetPosn(posn)
 		fi.addLink(errorLink{
 			start: offset,
 			msg:   strings.Join(errs, "\n"),
@@ -425,19 +487,18 @@ func Run(pta bool, result *Result) {
 			}
 		}
 	}
-	log.Print("Computing implements...")
+	log.Print("Computing implements relation...")
 	facts := computeImplements(&a.prog.MethodSets, a.allNamed)
 
 	// Add the type-based analysis results.
 	log.Print("Extracting type info...")
-
 	for _, info := range iprog.AllPackages {
 		a.doTypeInfo(info, facts)
 	}
 
 	a.visitInstrs(pta)
 
-	log.Print("Extracting type info complete")
+	result.setStatusf("Type analysis complete.")
 
 	if pta {
 		a.pointer(mainPkgs)
@@ -496,23 +557,24 @@ func (a *analysis) pointer(mainPkgs []*ssa.Package) {
 	a.ptaConfig.BuildCallGraph = true
 	a.ptaConfig.Reflection = false // (for now)
 
-	log.Print("Running pointer analysis...")
+	a.result.setStatusf("Pointer analysis running...")
+
 	ptares, err := pointer.Analyze(&a.ptaConfig)
 	if err != nil {
 		// If this happens, it indicates a bug.
-		log.Print("Pointer analysis failed: %s", err)
+		a.result.setStatusf("Pointer analysis failed: %s.", err)
 		return
 	}
 	log.Print("Pointer analysis complete.")
 
 	// Add the results of pointer analysis.
 
-	log.Print("Computing channel peers...")
+	a.result.setStatusf("Computing channel peers...")
 	a.doChannelPeers(ptares.Queries)
-	log.Print("Computing dynamic call graph edges...")
+	a.result.setStatusf("Computing dynamic call graph edges...")
 	a.doCallgraph(ptares.CallGraph)
 
-	log.Print("Done")
+	a.result.setStatusf("Analysis complete.")
 }
 
 type linksByStart []Link
@@ -522,9 +584,11 @@ func (a linksByStart) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a linksByStart) Len() int           { return len(a) }
 
 // allPackages returns a new sorted slice of all packages beneath the
-// specified package root directory, e.g. $GOROOT/src/pkg or $GOPATH/src.
+// specified package root directory, e.g. $GOROOT/src or $GOPATH/src.
 // Derived from from go/ssa/stdlib_test.go
 // root must end with os.PathSeparator.
+//
+// TODO(adonovan): use buildutil.AllPackages when the tree thaws.
 func allPackages(root string) []string {
 	var pkgs []string
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {

@@ -489,7 +489,7 @@ func callSSA(i *interpreter, caller *frame, callpos token.Pos, fn *ssa.Function,
 		caller: caller, // for panic/recover
 		fn:     fn,
 	}
-	if fn.Enclosing == nil {
+	if fn.Parent() == nil {
 		name := fn.String()
 		if ext := externals[name]; ext != nil {
 			if i.mode&EnableTracing != 0 {
@@ -555,9 +555,6 @@ func runFrame(fr *frame) {
 		}
 		fr.runDefers()
 		fr.block = fr.fn.Recover
-		if fr.block == nil {
-			fr.result = zero(fr.fn.Signature.Results())
-		}
 	}()
 
 	for {
@@ -672,6 +669,19 @@ func Interpret(mainpkg *ssa.Package, mode Mode, sizes types.Sizes, filename stri
 		case "runtime":
 			sz := sizes.Sizeof(pkg.Object.Scope().Lookup("MemStats").Type())
 			setGlobal(i, pkg, "sizeof_C_MStats", uintptr(sz))
+
+			// Delete the bodies of almost all "runtime" functions since they're magic.
+			// A missing intrinsic leads to a very clear error.
+			for _, mem := range pkg.Members {
+				if fn, ok := mem.(*ssa.Function); ok {
+					switch fn.Name() {
+					case "GOROOT", "gogetenv":
+						// keep
+					default:
+						fn.Blocks = nil
+					}
+				}
+			}
 
 		case "os":
 			Args := []value{filename}

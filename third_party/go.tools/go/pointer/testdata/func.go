@@ -28,9 +28,9 @@ func func1() {
 	print(&a)    // @pointsto main.a
 }
 
-// @calls main.func1 -> func1$2
-// @calls main.func1 -> func1$1
-// @calls func1$2 ->  func1$1
+// @calls main.func1 -> main.func1$2
+// @calls main.func1 -> main.func1$1
+// @calls main.func1$2 ->  main.func1$1
 
 func func2() {
 	var x, y *int
@@ -113,8 +113,8 @@ func func5() {
 }
 
 // @calls main.func5 -> (*main.T).f
-// @calls main.func5 -> (*main.T).g
-// @calls main.func5 -> (*main.T).h
+// @calls main.func5 -> (*main.T).g$thunk
+// @calls main.func5 -> (*main.T).h$thunk
 
 func func6() {
 	A := &a
@@ -124,7 +124,7 @@ func func6() {
 	print(f()) // @pointsto main.a
 }
 
-// @calls main.func6 -> func6$1
+// @calls main.func6 -> main.func6$1
 
 type I interface {
 	f()
@@ -138,18 +138,55 @@ func func7() {
 	var i I = D{}
 	imethodClosure := i.f
 	imethodClosure()
-	// @calls main.func7 -> bound$(main.I).f
-	// @calls bound$(main.I).f -> (main.D).f
+	// @calls main.func7 -> (main.I).f$bound
+	// @calls (main.I).f$bound -> (main.D).f
 
 	var d D
 	cmethodClosure := d.f
 	cmethodClosure()
-	// @calls main.func7 -> bound$(main.D).f
-	// @calls bound$(main.D).f ->(main.D).f
+	// @calls main.func7 -> (main.D).f$bound
+	// @calls (main.D).f$bound ->(main.D).f
 
 	methodExpr := D.f
 	methodExpr(d)
-	// @calls main.func7 -> (main.D).f
+	// @calls main.func7 -> (main.D).f$thunk
+}
+
+func func8(x ...int) {
+	print(&x[0]) // @pointsto varargs[*]@varargs:15
+}
+
+type E struct {
+	x1, x2, x3, x4, x5 *int
+}
+
+func (e E) f() {}
+
+func func9() {
+	// Regression test for bug reported by Jon Valdes on golang-dev, Jun 19 2014.
+	// The receiver of a bound method closure may be of a multi-node type, E.
+	// valueNode was reserving only a single node for it, so the
+	// nodes used by the immediately following constraints
+	// (e.g. param 'i') would get clobbered.
+
+	var e E
+	e.x1 = &a
+	e.x2 = &a
+	e.x3 = &a
+	e.x4 = &a
+	e.x5 = &a
+
+	_ = e.f // form a closure---must reserve sizeof(E) nodes
+
+	func(i I) {
+		i.f() // must not crash the solver
+	}(new(D))
+
+	print(e.x1) // @pointsto main.a
+	print(e.x2) // @pointsto main.a
+	print(e.x3) // @pointsto main.a
+	print(e.x4) // @pointsto main.a
+	print(e.x5) // @pointsto main.a
 }
 
 func main() {
@@ -160,6 +197,8 @@ func main() {
 	func5()
 	func6()
 	func7()
+	func8(1, 2, 3) // @line varargs
+	func9()
 }
 
 // @calls <root> -> main.main

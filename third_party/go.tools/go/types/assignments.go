@@ -9,8 +9,6 @@ package types
 import (
 	"go/ast"
 	"go/token"
-
-	"github.com/fzipp/pythia/third_party/go.tools/go/exact"
 )
 
 // assignment reports whether x can be assigned to a variable of type T,
@@ -21,7 +19,7 @@ import (
 //
 // TODO(gri) Should find a better way to handle in-band errors.
 //
-func (check *checker) assignment(x *operand, T Type) bool {
+func (check *Checker) assignment(x *operand, T Type) bool {
 	switch x.mode {
 	case invalid:
 		return true // error reported before
@@ -67,7 +65,7 @@ func (check *checker) assignment(x *operand, T Type) bool {
 	return T == nil || x.assignableTo(check.conf, T)
 }
 
-func (check *checker) initConst(lhs *Const, x *operand) {
+func (check *Checker) initConst(lhs *Const, x *operand) {
 	if x.mode == invalid || x.typ == Typ[Invalid] || lhs.typ == Typ[Invalid] {
 		if lhs.typ == nil {
 			lhs.typ = Typ[Invalid]
@@ -94,7 +92,6 @@ func (check *checker) initConst(lhs *Const, x *operand) {
 		if x.mode != invalid {
 			check.errorf(x.pos(), "cannot define constant %s (type %s) as %s", lhs.Name(), lhs.typ, x)
 		}
-		lhs.val = exact.MakeUnknown()
 		return
 	}
 
@@ -102,7 +99,7 @@ func (check *checker) initConst(lhs *Const, x *operand) {
 }
 
 // If result is set, lhs is a function result parameter and x is a return result.
-func (check *checker) initVar(lhs *Var, x *operand, result bool) Type {
+func (check *Checker) initVar(lhs *Var, x *operand, result bool) Type {
 	if x.mode == invalid || x.typ == Typ[Invalid] || lhs.typ == Typ[Invalid] {
 		if lhs.typ == nil {
 			lhs.typ = Typ[Invalid]
@@ -140,7 +137,7 @@ func (check *checker) initVar(lhs *Var, x *operand, result bool) Type {
 	return x.typ
 }
 
-func (check *checker) assignVar(lhs ast.Expr, x *operand) Type {
+func (check *Checker) assignVar(lhs ast.Expr, x *operand) Type {
 	if x.mode == invalid || x.typ == Typ[Invalid] {
 		return nil
 	}
@@ -206,17 +203,20 @@ func (check *checker) assignVar(lhs ast.Expr, x *operand) Type {
 
 // If returnPos is valid, initVars is called to type-check the assignment of
 // return expressions, and returnPos is the position of the return statement.
-func (check *checker) initVars(lhs []*Var, rhs []ast.Expr, returnPos token.Pos) {
+func (check *Checker) initVars(lhs []*Var, rhs []ast.Expr, returnPos token.Pos) {
 	l := len(lhs)
 	get, r, commaOk := unpack(func(x *operand, i int) { check.expr(x, rhs[i]) }, len(rhs), l == 2 && !returnPos.IsValid())
-	if l != r {
+	if get == nil || l != r {
 		// invalidate lhs and use rhs
 		for _, obj := range lhs {
 			if obj.typ == nil {
 				obj.typ = Typ[Invalid]
 			}
 		}
-		check.use(rhs...)
+		if get == nil {
+			return // error reported by unpack
+		}
+		check.useGetter(get, r)
 		if returnPos.IsValid() {
 			check.errorf(returnPos, "wrong number of return values (want %d, got %d)", l, r)
 			return
@@ -242,12 +242,15 @@ func (check *checker) initVars(lhs []*Var, rhs []ast.Expr, returnPos token.Pos) 
 	}
 }
 
-func (check *checker) assignVars(lhs, rhs []ast.Expr) {
+func (check *Checker) assignVars(lhs, rhs []ast.Expr) {
 	l := len(lhs)
 	get, r, commaOk := unpack(func(x *operand, i int) { check.expr(x, rhs[i]) }, len(rhs), l == 2)
+	if get == nil {
+		return // error reported by unpack
+	}
 	if l != r {
+		check.useGetter(get, r)
 		check.errorf(rhs[0].Pos(), "assignment count mismatch (%d vs %d)", l, r)
-		check.use(rhs...)
 		return
 	}
 
@@ -268,7 +271,7 @@ func (check *checker) assignVars(lhs, rhs []ast.Expr) {
 	}
 }
 
-func (check *checker) shortVarDecl(pos token.Pos, lhs, rhs []ast.Expr) {
+func (check *Checker) shortVarDecl(pos token.Pos, lhs, rhs []ast.Expr) {
 	scope := check.scope
 
 	// collect lhs variables

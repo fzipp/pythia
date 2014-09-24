@@ -54,7 +54,7 @@ func TestObjValueLookup(t *testing.T) {
 		return
 	}
 
-	prog := ssa.Create(iprog, 0 /*|ssa.LogFunctions*/)
+	prog := ssa.Create(iprog, 0 /*|ssa.PrintFunctions*/)
 	mainInfo := iprog.Created[0]
 	mainPkg := prog.Package(mainInfo.Pkg)
 	mainPkg.SetDebugMode(true)
@@ -110,7 +110,9 @@ func checkFuncValue(t *testing.T, prog *ssa.Program, obj *types.Func) {
 	fn := prog.FuncValue(obj)
 	// fmt.Printf("FuncValue(%s) = %s\n", obj, fn) // debugging
 	if fn == nil {
-		t.Errorf("FuncValue(%s) == nil", obj)
+		if obj.Name() != "interfaceMethod" {
+			t.Errorf("FuncValue(%s) == nil", obj)
+		}
 		return
 	}
 	if fnobj := fn.Object(); fnobj != obj {

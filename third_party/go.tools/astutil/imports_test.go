@@ -410,6 +410,112 @@ import (
 		out: `package main
 `,
 	},
+	{
+		name: "import.13",
+		pkg:  "io",
+		in: `package main
+
+import (
+	"fmt"
+
+	"io"
+	"os"
+	"utf8"
+
+	"go/format"
+)
+`,
+		out: `package main
+
+import (
+	"fmt"
+
+	"os"
+	"utf8"
+
+	"go/format"
+)
+`,
+	},
+	{
+		name: "import.14",
+		pkg:  "io",
+		in: `package main
+
+import (
+	"fmt" // a
+
+	"io"   // b
+	"os"   // c
+	"utf8" // d
+
+	"go/format" // e
+)
+`,
+		out: `package main
+
+import (
+	"fmt" // a
+
+	// b
+	"os"   // c
+	"utf8" // d
+
+	"go/format" // e
+)
+`,
+	},
+	{
+		name: "import.15",
+		pkg:  "double",
+		in: `package main
+
+import (
+	"double"
+	"double"
+)
+`,
+		out: `package main
+`,
+	},
+	{
+		name: "import.16",
+		pkg:  "bubble",
+		in: `package main
+
+import (
+	"toil"
+	"bubble"
+	"bubble"
+	"trouble"
+)
+`,
+		out: `package main
+
+import (
+	"toil"
+	"trouble"
+)
+`,
+	},
+	{
+		name: "import.17",
+		pkg:  "quad",
+		in: `package main
+
+import (
+	"quad"
+	"quad"
+)
+
+import (
+	"quad"
+	"quad"
+)
+`,
+		out: `package main
+`,
+	},
 }
 
 func TestDeleteImport(t *testing.T) {

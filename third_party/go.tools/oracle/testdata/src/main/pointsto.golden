@@ -14,24 +14,22 @@ this func() may point to these objects:
 	(pointsto.D).f
 
 -------- @pointsto func-ref-I.f --------
-this func() may point to these objects:
-	(pointsto.I).f
 
+Error: func (pointsto.I).f() is an interface method
 -------- @pointsto func-ref-d.f --------
 this func() may point to these objects:
 	(pointsto.D).f
 
 -------- @pointsto func-ref-i.f --------
-this func() may point to these objects:
-	(pointsto.I).f
 
+Error: func (pointsto.I).f() is an interface method
 -------- @pointsto ref-lexical-d.f --------
 this func() may point to these objects:
 	(pointsto.D).f
 
 -------- @pointsto ref-anon --------
 this func() may point to these objects:
-	main$1
+	pointsto.main$1
 
 -------- @pointsto ref-global --------
 this *string may point to these objects:
@@ -82,6 +80,11 @@ this map[string]*int may point to these objects:
 -------- @pointsto builtin-panic --------
 
 Error: pointer analysis wants an expression of reference type; got ()
+-------- @pointsto var-ref-s-f --------
+this interface{} may contain these dynamic types:
+	chan bool, may point to:
+		makechan
+
 -------- @pointsto func-live --------
 
 Error: pointer analysis did not find expression (dead code?)

@@ -44,7 +44,7 @@ var inputs = []string{
 	"testdata/fmtexcerpt.go",
 	"testdata/func.go",
 	"testdata/funcreflect.go",
-	"testdata/hello.go",
+	"testdata/hello.go", // NB: causes spurious failure of HVN cross-check
 	"testdata/interfaces.go",
 	"testdata/mapreflect.go",
 	"testdata/maps.go",
@@ -54,6 +54,7 @@ var inputs = []string{
 	"testdata/rtti.go",
 	"testdata/structreflect.go",
 	"testdata/structs.go",
+	"testdata/timer.go",
 }
 
 // Expectation grammar:
@@ -287,6 +288,7 @@ func doOneInput(input, filename string) bool {
 	}
 
 	var log bytes.Buffer
+	fmt.Fprintf(&log, "Input: %s\n", filename)
 
 	// Run the analysis.
 	config := &pointer.Config{
@@ -296,7 +298,10 @@ func doOneInput(input, filename string) bool {
 		Log:            &log,
 	}
 	for probe := range probes {
-		config.AddQuery(probe.Args[0])
+		v := probe.Args[0]
+		if pointer.CanPoint(v.Type()) {
+			config.AddQuery(v)
+		}
 	}
 
 	// Print the log is there was an error or a panic.
