@@ -149,7 +149,7 @@ func sortedPackages(prog *loader.Program) []*loader.PackageInfo {
 // scopeFiles returns a new slice containing the full paths of all the files
 // imported by the loader, sorted in increasing order.
 func scopeFiles(prog *loader.Program) []string {
-	files := make([]string, 0)
+	var files []string
 	prog.Fset.Iterate(func(f *token.File) bool {
 		files = append(files, f.Name())
 		return true
