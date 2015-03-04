@@ -90,7 +90,7 @@ var Files = map[string]string{
     <script>
       $(function() {
         var paneKey = 'pythia.out.pane';
-        var pane = localStorage[paneKey] || 'south';
+        var pane = localStorage[paneKey] || 'east';
 
         var goldenRatio = 0.382;
         var body = $('body');
