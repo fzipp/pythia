@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fzipp/pythia/static"
+	"github.com/fzipp/pythia/internal/static"
 )
 
 var funcs = template.FuncMap{

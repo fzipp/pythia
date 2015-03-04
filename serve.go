@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fzipp/pythia/internal/static"
 	"github.com/fzipp/pythia/internal/tools/go/loader"
 	"github.com/fzipp/pythia/internal/tools/godoc"
 	"github.com/fzipp/pythia/internal/tools/oracle"
-	"github.com/fzipp/pythia/static"
 )
 
 var (

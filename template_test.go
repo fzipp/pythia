@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
+	"go/ast"
 	"testing"
 
-	"go/ast"
-	"github.com/fzipp/pythia/static"
+	"github.com/fzipp/pythia/internal/static"
 )
 
 func TestTemplateFuncs(t *testing.T) {
