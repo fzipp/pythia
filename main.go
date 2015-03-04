@@ -19,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fzipp/pythia/third_party/go.tools/go/loader"
-	"github.com/fzipp/pythia/third_party/go.tools/oracle"
+	"github.com/fzipp/pythia/internal/tools/go/loader"
+	"github.com/fzipp/pythia/internal/tools/oracle"
 )
 
 var (
@@ -93,10 +93,7 @@ func main() {
 	var err error
 	settings := build.Default
 	settings.BuildTags = strings.Split(*tags, ",")
-	conf := loader.Config{
-		Build:         &settings,
-		SourceImports: true,
-	}
+	conf := loader.Config{Build: &settings}
 	_, err = conf.FromArgs(args, true)
 	exitOn(err)
 	prog, err = conf.Load()
