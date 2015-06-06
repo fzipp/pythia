@@ -5,7 +5,7 @@ import (
 	"go/ast"
 	"testing"
 
-	"github.com/fzipp/pythia/internal/static"
+	"github.com/fzipp/pythia/static"
 )
 
 func TestTemplateFuncs(t *testing.T) {

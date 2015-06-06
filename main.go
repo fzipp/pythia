@@ -19,8 +19,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fzipp/pythia/internal/tools/go/loader"
-	"github.com/fzipp/pythia/internal/tools/oracle"
+	"github.com/fzipp/pythia/vendor/tools/go/loader"
 )
 
 var (
@@ -32,7 +31,6 @@ var (
 	files    []string
 	packages []*loader.PackageInfo
 	prog     *loader.Program
-	ora      *oracle.Oracle
 	mutex    sync.Mutex
 )
 
@@ -97,8 +95,6 @@ func main() {
 	_, err = conf.FromArgs(args, true)
 	exitOn(err)
 	prog, err = conf.Load()
-	exitOn(err)
-	ora, err = oracle.New(prog, nil, false)
 	exitOn(err)
 	files = scopeFiles(prog)
 	packages = sortedPackages(prog)

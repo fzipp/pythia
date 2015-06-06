@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fzipp/pythia/internal/static"
-	"github.com/fzipp/pythia/internal/tools/go/loader"
-	"github.com/fzipp/pythia/internal/tools/godoc"
-	"github.com/fzipp/pythia/internal/tools/oracle"
+	"github.com/fzipp/pythia/static"
+	"github.com/fzipp/pythia/vendor/tools/go/loader"
+	"github.com/fzipp/pythia/vendor/tools/godoc"
+	"github.com/fzipp/pythia/vendor/tools/oracle"
 )
 
 var (
@@ -129,32 +129,33 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	if *verbose {
 		log.Println(req.RemoteAddr, cmdLine(mode, pos, format, args))
 	}
-	res, err := queryOracle(mode, pos)
+	query, err := queryOracle(mode, pos)
 	if err != nil {
 		io.WriteString(w, err.Error())
 		return
 	}
-	writeResult(w, res, format)
+	writeResult(w, query, format)
 }
 
-func queryOracle(mode, pos string) (*oracle.Result, error) {
+func queryOracle(mode, pos string) (*oracle.Query, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
-	if mode == "what" {
-		return oracle.Query(args, mode, pos, nil, &build.Default, false)
+	query := &oracle.Query{
+		Mode:       mode,
+		Pos:        pos,
+		Build:      &build.Default,
+		Scope:      args,
+		Reflection: false,
 	}
-	qpos, err := oracle.ParseQueryPos(prog, pos, false)
-	if err != nil {
-		return nil, err
-	}
-	return ora.Query(mode, qpos)
+	err := oracle.Run(query)
+	return query, err
 }
 
 // writeResult writes the result of an oracle query to w in the specified
 // format, "json" or "plain".
-func writeResult(w io.Writer, res *oracle.Result, format string) {
+func writeResult(w io.Writer, query *oracle.Query, format string) {
 	if format == "json" {
-		b, err := json.Marshal(res.Serial())
+		b, err := json.Marshal(query.Serial())
 		if err != nil {
 			io.WriteString(w, err.Error())
 			return
@@ -162,7 +163,7 @@ func writeResult(w io.Writer, res *oracle.Result, format string) {
 		w.Write(b)
 		return
 	}
-	res.WriteTo(w)
+	query.WriteTo(w)
 }
 
 // serveStatic delivers the contents of a file from the static file map.
