@@ -17,7 +17,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/fzipp/pythia/vendor/tools/go/loader"
 )
@@ -31,7 +30,6 @@ var (
 	files    []string
 	packages []*loader.PackageInfo
 	prog     *loader.Program
-	mutex    sync.Mutex
 )
 
 func init() {

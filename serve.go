@@ -138,8 +138,6 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 }
 
 func queryOracle(mode, pos string) (*oracle.Query, error) {
-	mutex.Lock()
-	defer mutex.Unlock()
 	query := &oracle.Query{
 		Mode:       mode,
 		Pos:        pos,
