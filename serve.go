@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"go/build"
+	"golang.org/x/tools/godoc"
 	"io"
 	"io/ioutil"
 	"log"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/fzipp/pythia/internal/static"
 	"github.com/fzipp/pythia/internal/tools/go/loader"
-	"github.com/fzipp/pythia/internal/tools/godoc"
 	"github.com/fzipp/pythia/internal/tools/oracle"
 )
 
