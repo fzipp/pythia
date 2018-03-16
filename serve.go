@@ -6,10 +6,11 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"go/build"
+	//"encoding/json"
+	//"go/build"
+	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/godoc"
-	"io"
+	//"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -18,8 +19,6 @@ import (
 	"time"
 
 	"github.com/fzipp/pythia/internal/static"
-	"github.com/fzipp/pythia/internal/tools/go/loader"
-	"github.com/fzipp/pythia/internal/tools/oracle"
 )
 
 var (
@@ -123,20 +122,23 @@ func errorForbidden(w http.ResponseWriter) {
 // If the application was launched in verbose mode, each query will be
 // logged like an invocation of the oracle command.
 func serveQuery(w http.ResponseWriter, req *http.Request) {
-	mode := req.FormValue("mode")
-	pos := req.FormValue("pos")
-	format := req.FormValue("format")
-	if *verbose {
-		log.Println(req.RemoteAddr, cmdLine(mode, pos, format, args))
-	}
-	res, err := queryOracle(mode, pos)
-	if err != nil {
-		io.WriteString(w, err.Error())
-		return
-	}
-	writeResult(w, res, format)
+	/*
+		mode := req.FormValue("mode")
+		pos := req.FormValue("pos")
+		format := req.FormValue("format")
+			if *verbose {
+				log.Println(req.RemoteAddr, cmdLine(mode, pos, format, args))
+			}
+				res, err := queryOracle(mode, pos)
+				if err != nil {
+					io.WriteString(w, err.Error())
+					return
+				}
+				writeResult(w, res, format)
+	*/
 }
 
+/*
 func queryOracle(mode, pos string) (*oracle.Result, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -164,6 +166,7 @@ func writeResult(w io.Writer, res *oracle.Result, format string) {
 	}
 	res.WriteTo(w)
 }
+*/
 
 // serveStatic delivers the contents of a file from the static file map.
 func serveStatic(w http.ResponseWriter, req *http.Request) {
