@@ -11,6 +11,7 @@ import (
 	"go/build"
 	"go/token"
 	"golang.org/x/tools/go/loader"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -18,10 +19,10 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
 )
 
 var (
+	guruPath = ""
 	httpAddr = flag.String("http", ":8080", "HTTP listen address")
 	verbose  = flag.Bool("v", false, "Verbose mode: print incoming queries")
 	open     = flag.Bool("open", true, "Try to open browser")
@@ -30,7 +31,6 @@ var (
 	files    []string
 	packages []*loader.PackageInfo
 	prog     *loader.Program
-	mutex    sync.Mutex
 )
 
 func init() {
@@ -71,6 +71,13 @@ but don't open the browser:
 `
 
 func main() {
+	var err error
+	// Check if guru is in the path.
+	guruPath, err = exec.LookPath("guru")
+	if err != nil {
+		log.Fatal("Can't find guru in your path")
+		return
+	}
 	flag.Usage = func() {}
 	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
@@ -87,7 +94,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	var err error
 	settings := build.Default
 	settings.BuildTags = strings.Split(*tags, ",")
 	conf := loader.Config{Build: &settings}

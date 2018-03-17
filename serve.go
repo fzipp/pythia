@@ -6,14 +6,13 @@ package main
 
 import (
 	"bytes"
-	//"encoding/json"
-	//"go/build"
+	"fmt"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/godoc"
-	//"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -122,51 +121,28 @@ func errorForbidden(w http.ResponseWriter) {
 // If the application was launched in verbose mode, each query will be
 // logged like an invocation of the oracle command.
 func serveQuery(w http.ResponseWriter, req *http.Request) {
-	/*
-		mode := req.FormValue("mode")
-		pos := req.FormValue("pos")
-		format := req.FormValue("format")
-			if *verbose {
-				log.Println(req.RemoteAddr, cmdLine(mode, pos, format, args))
-			}
-				res, err := queryOracle(mode, pos)
-				if err != nil {
-					io.WriteString(w, err.Error())
-					return
-				}
-				writeResult(w, res, format)
-	*/
-}
-
-/*
-func queryOracle(mode, pos string) (*oracle.Result, error) {
-	mutex.Lock()
-	defer mutex.Unlock()
-	if mode == "what" {
-		return oracle.Query(args, mode, pos, nil, &build.Default, false)
+	mode := req.FormValue("mode")
+	pos := req.FormValue("pos")
+	format := req.FormValue("format")
+	if format != "json" && format != "plain" {
+		fmt.Println("Warning: incorrect format:", mode, pos, format)
 	}
-	qpos, err := oracle.ParseQueryPos(prog, pos, false)
-	if err != nil {
-		return nil, err
-	}
-	return ora.Query(mode, qpos)
-}
-
-// writeResult writes the result of an oracle query to w in the specified
-// format, "json" or "plain".
-func writeResult(w io.Writer, res *oracle.Result, format string) {
+	// Call guru
+	args := []string{}
 	if format == "json" {
-		b, err := json.Marshal(res.Serial())
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		w.Write(b)
-		return
+		args = append(args, "-json")
 	}
-	res.WriteTo(w)
+	args = append(args, mode)
+	args = append(args, pos)
+	if *verbose {
+		log.Println(args)
+	}
+	out, err := exec.Command(guruPath, args...).Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	w.Write(out)
 }
-*/
 
 // serveStatic delivers the contents of a file from the static file map.
 func serveStatic(w http.ResponseWriter, req *http.Request) {
