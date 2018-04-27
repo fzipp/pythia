@@ -21,7 +21,7 @@ var files = []string{
 	"index.html",
 	"source.html",
 	"style.css",
-	"oracle.js",
+	"guru.js",
 	"jquery.min.js",
 	"jquery-ui.min.js",
 	"jquery-layout.min.js",

@@ -8,7 +8,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Go source code oracle</title>
+    <title>Go source code guru</title>
     <link rel="stylesheet" href="static/style.css">
   </head>
   <body style="padding: 0;">
@@ -26,7 +26,7 @@
       </div>
     </div>
     <div class="ui-layout-center" id="content">
-      <p>Select or click within the source code to consult the oracle.</p>
+      <p>Select or click within the source code to consult the guru.</p>
       <div id="source"></div>
     </div>
     <div class="ui-layout-south">
@@ -39,7 +39,7 @@
     <script src="static/jquery.min.js"></script>
     <script src="static/jquery-ui.min.js"></script>
     <script src="static/jquery-layout.min.js"></script>
-    <script src="static/oracle.js"></script>
+    <script src="static/guru.js"></script>
     <script>
       $(function() {
         var paneKey = 'pythia.out.pane';
@@ -101,7 +101,7 @@
         out.on('esc', function() {
           layout.close(pane);
         });
-        oracle.init($('#source'), out, '{{.}}');
+        guru.init($('#source'), out, '{{.}}');
       });
     </script>
   </body>

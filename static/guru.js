@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-var oracle = (function() {
+var guru = (function() {
 
 'use strict';
 
@@ -38,11 +38,11 @@ var modes = [
 ];
 
 var message = {
-  wait: 'Consulting the oracle ...',
+  wait: 'Consulting the guru ...',
   error: 'An error occurred.'
 };
 
-var title = 'Go source code oracle';
+var title = 'Go source code guru';
 
 var currentFile;
 var nums, code, out;

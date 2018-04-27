@@ -13,7 +13,7 @@ var Files = map[string]string{
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Go source code oracle</title>
+    <title>Go source code guru</title>
     <link rel="stylesheet" href="static/style.css">
   </head>
   <body>
@@ -55,7 +55,7 @@ var Files = map[string]string{
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Go source code oracle</title>
+    <title>Go source code guru</title>
     <link rel="stylesheet" href="static/style.css">
   </head>
   <body style="padding: 0;">
@@ -73,7 +73,7 @@ var Files = map[string]string{
       </div>
     </div>
     <div class="ui-layout-center" id="content">
-      <p>Select or click within the source code to consult the oracle.</p>
+      <p>Select or click within the source code to consult the guru.</p>
       <div id="source"></div>
     </div>
     <div class="ui-layout-south">
@@ -86,7 +86,7 @@ var Files = map[string]string{
     <script src="static/jquery.min.js"></script>
     <script src="static/jquery-ui.min.js"></script>
     <script src="static/jquery-layout.min.js"></script>
-    <script src="static/oracle.js"></script>
+    <script src="static/guru.js"></script>
     <script>
       $(function() {
         var paneKey = 'pythia.out.pane';
@@ -148,7 +148,7 @@ var Files = map[string]string{
         out.on('esc', function() {
           layout.close(pane);
         });
-        oracle.init($('#source'), out, '{{.}}');
+        guru.init($('#source'), out, '{{.}}');
       });
     </script>
   </body>
@@ -320,11 +320,11 @@ a:hover {
 }
 `,
 
-	"oracle.js": `// Copyright 2013 Frederik Zipp.  All rights reserved.
+	"guru.js": `// Copyright 2013 Frederik Zipp.  All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-var oracle = (function() {
+var guru = (function() {
 
 'use strict';
 
@@ -360,11 +360,11 @@ var modes = [
 ];
 
 var message = {
-  wait: 'Consulting the oracle ...',
+  wait: 'Consulting the guru ...',
   error: 'An error occurred.'
 };
 
-var title = 'Go source code oracle';
+var title = 'Go source code guru';
 
 var currentFile;
 var nums, code, out;
