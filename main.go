@@ -131,17 +131,15 @@ func registerHandlers() {
 // byPath makes a slice of package infos sortable by package path.
 type byPath []*loader.PackageInfo
 
-func (p byPath) Len() int           { return len(p) }
-func (p byPath) Less(i, j int) bool { return p[i].Pkg.Path() < p[j].Pkg.Path() }
-func (p byPath) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
-
 // sortedPackages returns all packages of a program, sorted by package path.
 func sortedPackages(prog *loader.Program) []*loader.PackageInfo {
 	pkgs := make([]*loader.PackageInfo, 0, len(prog.AllPackages))
 	for _, p := range prog.AllPackages {
 		pkgs = append(pkgs, p)
 	}
-	sort.Sort(byPath(pkgs))
+	sort.Slice(pkgs, func(i, j int) bool {
+		return pkgs[i].Pkg.Path() < pkgs[j].Pkg.Path()
+	})
 	return pkgs
 }
 
