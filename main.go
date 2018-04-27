@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Pythia is a web application front-end for the Go source code oracle.
+// Pythia is a web application front-end for the Go source code guru.
 package main
 
 import (
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"go/build"
 	"go/token"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -18,10 +19,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/fzipp/pythia/vendor/tools/go/loader"
+	"golang.org/x/tools/go/loader"
 )
 
 var (
+	guruPath = ""
 	httpAddr = flag.String("http", ":8080", "HTTP listen address")
 	verbose  = flag.Bool("v", false, "Verbose mode: print incoming queries")
 	open     = flag.Bool("open", true, "Try to open browser")
@@ -44,7 +46,7 @@ func init() {
 
 const useHelp = "Run 'pythia -help' for more information.\n"
 
-const helpMessage = `Web frontend for the Go source code oracle.
+const helpMessage = `Web frontend for the Go source code guru.
 Usage: pythia [<flag> ...] <args> ...
 
 The -http flag specifies the HTTP service address (e.g., ':6060').
@@ -70,6 +72,13 @@ but don't open the browser:
 `
 
 func main() {
+	var err error
+	// Check if guru is in the path.
+	guruPath, err = exec.LookPath("guru")
+	if err != nil {
+		log.Fatal("Can't find guru in your path")
+		return
+	}
 	flag.Usage = func() {}
 	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
@@ -86,7 +95,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	var err error
 	settings := build.Default
 	settings.BuildTags = strings.Split(*tags, ",")
 	conf := loader.Config{Build: &settings}
@@ -175,11 +183,4 @@ func exitOn(err error) {
 func exitError(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
-}
-
-// cmdLine returns what the command line would look like if the oracle was
-// invoked via command line with the given arguments.
-func cmdLine(mode, pos, format string, scope []string) string {
-	return fmt.Sprintf("oracle -pos=%s -format=%s %s %s",
-		pos, format, mode, strings.Join(scope, " "))
 }

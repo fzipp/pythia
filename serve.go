@@ -6,20 +6,19 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"go/build"
-	"io"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/fzipp/pythia/static"
-	"github.com/fzipp/pythia/vendor/tools/go/loader"
-	"github.com/fzipp/pythia/vendor/tools/godoc"
-	"github.com/fzipp/pythia/vendor/tools/oracle"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/godoc"
+
+	"github.com/fzipp/pythia/internal/static"
 )
 
 var (
@@ -126,42 +125,24 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	mode := req.FormValue("mode")
 	pos := req.FormValue("pos")
 	format := req.FormValue("format")
-	if *verbose {
-		log.Println(req.RemoteAddr, cmdLine(mode, pos, format, args))
+	if format != "json" && format != "plain" {
+		fmt.Println("Warning: incorrect format:", mode, pos, format)
 	}
-	query, err := queryOracle(mode, pos)
-	if err != nil {
-		io.WriteString(w, err.Error())
-		return
-	}
-	writeResult(w, query, format)
-}
-
-func queryOracle(mode, pos string) (*oracle.Query, error) {
-	query := &oracle.Query{
-		Mode:       mode,
-		Pos:        pos,
-		Build:      &build.Default,
-		Scope:      args,
-		Reflection: false,
-	}
-	err := oracle.Run(query)
-	return query, err
-}
-
-// writeResult writes the result of an oracle query to w in the specified
-// format, "json" or "plain".
-func writeResult(w io.Writer, query *oracle.Query, format string) {
+	// Call guru
+	args := []string{}
 	if format == "json" {
-		b, err := json.Marshal(query.Serial())
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		w.Write(b)
-		return
+		args = append(args, "-json")
 	}
-	query.WriteTo(w)
+	args = append(args, mode)
+	args = append(args, pos)
+	if *verbose {
+		log.Println(args)
+	}
+	out, err := exec.Command(guruPath, args...).Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	w.Write(out)
 }
 
 // serveStatic delivers the contents of a file from the static file map.
