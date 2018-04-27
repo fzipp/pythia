@@ -9,9 +9,9 @@ For more information on the Go guru, see [Using Go Guru](http://golang.org/s/usi
 Installing from source
 ----------------------
 
-Building Pythia requires `vgo`:
+Building Pythia requires `vgo:
 
-    $ go get golang.org/x/vgo
+    $ go get -u golang.org/x/vgo
 
 To install, run
 
@@ -23,7 +23,7 @@ You will now find a `pythia` binary in your `$GOPATH/bin` directory.
 
 Running Pythia also requires `guru`:
 
-    $ go get golang.org/x/tools/cmd/guru
+    $ go get -u golang.org/x/tools/cmd/guru
 
 Usage
 -----
