@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Pythia is a web application front-end for the Go source code guru.
-package main
+package main // import "github.com/fzipp/pythia"
 
 import (
 	"flag"

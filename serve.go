@@ -18,7 +18,7 @@ import (
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/godoc"
 
-	"github.com/fzipp/pythia/internal/static"
+	"github.com/fzipp/pythia/static"
 )
 
 var (
