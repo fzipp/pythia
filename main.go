@@ -59,12 +59,12 @@ open the browser. It is set to 'true' by default. If set to 'false'
 the browser will not be launched.
 
 The -v flag enables verbose mode, in which every incoming query
-to the oracle is logged to the standard output.
+to the guru is logged to the standard output.
 ` + loader.FromArgsUsage + `
 Examples:
 
-Start pythia with the scope of package oracle:
-% pythia code.google.com/p/go.tools/cmd/oracle
+Start pythia with the scope of package guru:
+% pythia golang.org/x/tools/cmd/guru
 
 Start pythia with the scope of package image/png on port 8081,
 but don't open the browser:

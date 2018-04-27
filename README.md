@@ -1,7 +1,7 @@
-Pythia is a browser based user interface for the Go source code oracle,
-which is a source code comprehension tool for Go programs.
+Pythia is a browser based user interface for the Go source code guru,
+which is a tool for navigating Go code.
 
-For more information on the Go oracle, see the [original announcement](https://groups.google.com/d/msg/golang-nuts/CwdIJZs6Tfc/GX7ixTK_Dd4J).
+For more information on the Go guru, see [Using Go Guru](http://golang.org/s/using-guru).
 
 ![Screenshot](https://raw.github.com/fzipp/pythia/gh-pages/images/pythia_screenshot.png)
 
@@ -9,11 +9,13 @@ For more information on the Go oracle, see the [original announcement](https://g
 Installing from source
 ----------------------
 
-Building Pythia requires at least Go version 1.2 or higher.
+Building Pythia requires vgo
+
+    $ go get golang.org/x/vgo
 
 To install, run
 
-    $ go get github.com/fzipp/pythia
+    $ vgo get github.com/fzipp/pythia
 
 You will now find a `pythia` binary in your `$GOPATH/bin` directory.
 

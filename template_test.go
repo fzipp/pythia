@@ -19,7 +19,7 @@ func TestTemplateFuncs(t *testing.T) {
 		"File":      &ast.File{},
 		"FileName":  "/usr/local/go/src/pkg/fmt/format.go",
 		"StdPkg":    "io/ioutil",
-		"NonStdPkg": "code.google.com/p/go.tools/oracle",
+		"NonStdPkg": "golang.org/x/tools/cmd/guru",
 	}
 	tests := []struct {
 		file, want string
@@ -49,7 +49,7 @@ func TestIsStandardPackage(t *testing.T) {
 		{"net/http", true},
 		{"image/color/palette", true},
 		{"github.com/fzipp/pythia", false},
-		{"code.google.com/p/go.tools/oracle", false},
+		{"golang.org/x/tools/cmd/guru", false},
 		{"main", false},
 		{"foo", false},
 		{"foo/bar", false},

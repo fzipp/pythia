@@ -43,7 +43,7 @@ func serveIndex(w http.ResponseWriter, req *http.Request) {
 
 // serveSource delivers the source view page, which is the main
 // workspace of the tool, where the user creates the queries to
-// the oracle and browses their results.
+// the guru and browses their results.
 //
 // The request parameter 'file' determines the source file to be
 // shown initially, e.g. "/path/to/file.go". The contents of the
@@ -112,7 +112,7 @@ func errorForbidden(w http.ResponseWriter) {
 	http.Error(w, "Forbidden", 403)
 }
 
-// serveQuery executes a query to the oracle and delivers the results
+// serveQuery executes a query to the guru and delivers the results
 // in the specified format. The request parameters are:
 //
 //   mode: e.g. "describe", "callers", "freevars", ...
@@ -120,7 +120,7 @@ func errorForbidden(w http.ResponseWriter) {
 //   format: "json" or "plain", no "xml" at the moment
 //
 // If the application was launched in verbose mode, each query will be
-// logged like an invocation of the oracle command.
+// logged like an invocation of the guru command.
 func serveQuery(w http.ResponseWriter, req *http.Request) {
 	mode := req.FormValue("mode")
 	pos := req.FormValue("pos")
