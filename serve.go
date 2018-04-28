@@ -140,7 +140,9 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	}
 	out, err := exec.Command(guruPath, args...).Output()
 	if err != nil {
-		log.Fatal(err)
+		log.Println("launch guru command:", err)
+		http.Error(w, "guru command failed", http.StatusInternalServerError)
+		return
 	}
 	w.Write(out)
 }
