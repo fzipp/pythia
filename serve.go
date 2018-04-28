@@ -135,7 +135,7 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 	}
 	args = append(args, "-scope", scope, mode, pos)
 	if *verbose {
-		log.Println(args)
+		log.Println("guru", strings.Join(args, " "))
 	}
 	out, err := exec.Command(guruPath, args...).Output()
 	if err != nil {
