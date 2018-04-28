@@ -129,12 +129,11 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 		fmt.Println("Warning: incorrect format:", mode, pos, format)
 	}
 	// Call guru
-	args := []string{}
+	var args []string
 	if format == "json" {
 		args = append(args, "-json")
 	}
-	args = append(args, mode)
-	args = append(args, pos)
+	args = append(args, "-scope", scope, mode, pos)
 	if *verbose {
 		log.Println(args)
 	}

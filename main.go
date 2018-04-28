@@ -32,6 +32,7 @@ var (
 	files    []string
 	packages []*loader.PackageInfo
 	prog     *loader.Program
+	scope    string
 )
 
 func init() {
@@ -104,6 +105,7 @@ func main() {
 	exitOn(err)
 	files = scopeFiles(prog)
 	packages = sortedPackages(prog)
+	scope = args[0]
 
 	registerHandlers()
 
