@@ -128,9 +128,6 @@ func registerHandlers() {
 	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.HandlerFunc(serveStatic)))
 }
 
-// byPath makes a slice of package infos sortable by package path.
-type byPath []*loader.PackageInfo
-
 // sortedPackages returns all packages of a program, sorted by package path.
 func sortedPackages(prog *loader.Program) []*loader.PackageInfo {
 	pkgs := make([]*loader.PackageInfo, 0, len(prog.AllPackages))
