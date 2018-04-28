@@ -95,7 +95,7 @@ func main() {
 	exitOn(err)
 	files = scopeFiles(prog)
 	packages = sortedPackages(prog)
-	scope = args[0]
+	scope = strings.Join(args, ",")
 
 	registerHandlers()
 
