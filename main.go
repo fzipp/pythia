@@ -35,16 +35,6 @@ var (
 	scope    string
 )
 
-func init() {
-	if os.Getenv("GOMAXPROCS") == "" {
-		n := runtime.NumCPU()
-		if n < 4 {
-			n = 4
-		}
-		runtime.GOMAXPROCS(n)
-	}
-}
-
 const useHelp = "Run 'pythia -help' for more information.\n"
 
 const helpMessage = `Web frontend for the Go source code guru.
