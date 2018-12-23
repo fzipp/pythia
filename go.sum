@@ -1,4 +1,2 @@
-github.com/fzipp/geom v1.0.0 h1:QhTKV8gNOBdyCNE8hlv4UKmUNYtxzds/Z392LwH4uQw=
-github.com/fzipp/geom v1.0.0/go.mod h1:gdaEjeI2z7tzxsrDwK86/4qZF3dbkoEhuGY+NCJLV6M=
 golang.org/x/tools v0.0.0-20181221235234-d00ac6d27372 h1:zWPUEY/PjVHT+zO3L8OfkjrtIjf55joTxn/RQP/AjOI=
 golang.org/x/tools v0.0.0-20181221235234-d00ac6d27372/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
