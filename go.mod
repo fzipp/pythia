@@ -1,3 +1,8 @@
 module github.com/fzipp/pythia
 
-require golang.org/x/tools v0.0.0-20180427004646-0b5ca0b0400f
+go 1.11
+
+require (
+	github.com/fzipp/geom v1.0.0 // indirect
+	golang.org/x/tools v0.0.0-20181221235234-d00ac6d27372
+)

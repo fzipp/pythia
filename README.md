@@ -9,17 +9,15 @@ For more information on the Go guru, see [Using Go Guru](http://golang.org/s/usi
 Installing from source
 ----------------------
 
-Building Pythia requires `vgo:
-
-    $ go get -u golang.org/x/vgo
+Building Pythia requires Go with module support (Go 1.11 or later).
 
 To install, run
 
     $ git clone https://github.com/fzipp/pythia
     $ cd pythia
-    $ vgo install
+    $ go install
 
-You will now find a `pythia` binary in your `$GOPATH/bin` directory.
+You will now find a `pythia` binary in your `$GOBIN` or `$GOPATH/bin` directory.
 
 Running Pythia also requires `guru`:
 
