@@ -8,9 +8,9 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -76,7 +76,7 @@ func serveFile(w http.ResponseWriter, req *http.Request) {
 		errorForbidden(w)
 		return
 	}
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		log.Println(req.RemoteAddr, err)
 		http.NotFound(w, req)
