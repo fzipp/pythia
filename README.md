@@ -1,3 +1,8 @@
+# Pythia
+
+![Build Status](https://github.com/fzipp/pythis/workflows/build/badge.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/fzipp/pythia)](https://goreportcard.com/report/github.com/fzipp/pythia)
+
 Pythia is a browser based user interface for the Go source code guru,
 which is a tool for navigating Go code.
 
@@ -5,17 +10,11 @@ For more information on the Go guru, see [Using Go Guru](http://golang.org/s/usi
 
 ![Screenshot](https://raw.github.com/fzipp/pythia/gh-pages/images/pythia_screenshot.png)
 
-
-Installing from source
-----------------------
-
-Building Pythia requires Go with module support (Go 1.11 or later).
+## Installing from source
 
 To install, run
 
-    $ git clone https://github.com/fzipp/pythia
-    $ cd pythia
-    $ go install
+    $ go get https://github.com/fzipp/pythia
 
 You will now find a `pythia` binary in your `$GOBIN` or `$GOPATH/bin` directory.
 
@@ -23,8 +22,7 @@ Running Pythia also requires `guru`:
 
     $ go get -u golang.org/x/tools/cmd/guru
 
-Usage
------
+## Usage
 
 Start the web application with a package path, e.g.:
 
@@ -36,4 +34,3 @@ in your browser. You can choose a different port via the `-http` flag, e.g.:
     $ pythia -http :6060 fmt
 
 Run `pythia -help` for more information.
-
