@@ -1,6 +1,6 @@
 # Pythia
 
-![Build Status](https://github.com/fzipp/pythis/workflows/build/badge.svg)
+![Build Status](https://github.com/fzipp/pythia/workflows/build/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/fzipp/pythia)](https://goreportcard.com/report/github.com/fzipp/pythia)
 
 Pythia is a browser based user interface for the Go source code guru,
