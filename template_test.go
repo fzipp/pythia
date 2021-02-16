@@ -3,18 +3,11 @@ package main
 import (
 	"bytes"
 	"go/ast"
+	"html/template"
 	"testing"
-
-	"github.com/fzipp/pythia/static"
 )
 
 func TestTemplateFuncs(t *testing.T) {
-	static.Files = map[string]string{
-		"plain.html":   "<p>test</p>",
-		"base.html":    "{{base .FileName}}",
-		"stdpkg1.html": "{{if stdpkg .StdPkg}}ok{{else}}fail{{end}}",
-		"stdpkg2.html": "{{if stdpkg .NonStdPkg}}fail{{else}}ok{{end}}",
-	}
 	data := map[string]interface{}{
 		"File":      &ast.File{},
 		"FileName":  "/usr/local/go/src/pkg/fmt/format.go",
@@ -22,20 +15,23 @@ func TestTemplateFuncs(t *testing.T) {
 		"NonStdPkg": "golang.org/x/tools/cmd/guru",
 	}
 	tests := []struct {
-		file, want string
+		tmpl, want string
 	}{
-		{"plain.html", "<p>test</p>"},
-		{"base.html", "format.go"},
-		{"stdpkg1.html", "ok"},
-		{"stdpkg2.html", "ok"},
+		{"<p>test</p>", "<p>test</p>"},
+		{"{{base .FileName}}", "format.go"},
+		{"{{if stdpkg .StdPkg}}ok{{else}}fail{{end}}", "ok"},
+		{"{{if stdpkg .NonStdPkg}}fail{{else}}ok{{end}}", "ok"},
 	}
 	for _, tt := range tests {
-		template := parseTemplate(tt.file)
-		out := new(bytes.Buffer)
-		template.Execute(out, data)
+		tmpl := template.Must(template.New("").Funcs(funcs).Parse(tt.tmpl))
+		var out bytes.Buffer
+		if err := tmpl.Execute(&out, data); err != nil {
+			t.Errorf("Did not expect error for template %q, but got error: %q", tt.tmpl, err)
+			continue
+		}
 		if x := out.String(); x != tt.want {
-			t.Errorf("Executing template %q with data %q resulted in %q, want %q",
-				tt.file, data, x, tt.want)
+			t.Errorf("Executing template %q with data %#v resulted in %q, want %q",
+				tt.tmpl, data, x, tt.want)
 		}
 	}
 }

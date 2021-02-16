@@ -116,8 +116,7 @@ func registerHandlers() {
 	http.HandleFunc("/source", serveSource)
 	http.HandleFunc("/file", serveFile)
 	http.HandleFunc("/query", serveQuery)
-	staticPrefix := "/static/"
-	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.HandlerFunc(serveStatic)))
+	http.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 }
 
 // sortedPackages returns all packages of a program, sorted by package path.

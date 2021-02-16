@@ -1,6 +1,0 @@
-The static files in this directory such as JavaScript, HTML template and CSS
-files are baked into the binary via the generated file `static.go`. If you
-change one of the said files you have to regenerate `static.go` using
-'go generate'. After that 'go build' the project for your changes to take
-effect.
-

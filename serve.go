@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"embed"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,23 +14,18 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"time"
 
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/godoc"
-
-	"github.com/fzipp/pythia/static"
 )
 
-var (
-	indexView  = parseTemplate("index.html")
-	sourceView = parseTemplate("source.html")
-)
+//go:embed static/*
+var staticFiles embed.FS
 
 // serveIndex delivers the scope index page, which is the first
 // page presented to the user.
 func serveIndex(w http.ResponseWriter, req *http.Request) {
-	err := indexView.Execute(w, struct {
+	err := templates.Lookup("index.html").Execute(w, struct {
 		Scope    string
 		Packages []*loader.PackageInfo
 	}{
@@ -58,7 +54,7 @@ func serveSource(w http.ResponseWriter, req *http.Request) {
 		errorForbidden(w)
 		return
 	}
-	err := sourceView.Execute(w, file)
+	err := templates.Lookup("source.html").Execute(w, file)
 	if err != nil {
 		log.Println(err)
 	}
@@ -144,15 +140,4 @@ func serveQuery(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	w.Write(out)
-}
-
-// serveStatic delivers the contents of a file from the static file map.
-func serveStatic(w http.ResponseWriter, req *http.Request) {
-	name := req.URL.Path
-	data, ok := static.Files[name]
-	if !ok {
-		http.NotFound(w, req)
-		return
-	}
-	http.ServeContent(w, req, name, time.Time{}, strings.NewReader(data))
 }
