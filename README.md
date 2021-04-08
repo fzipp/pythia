@@ -14,13 +14,13 @@ For more information on the Go guru, see [Using Go Guru](http://golang.org/s/usi
 
 To install, run
 
-    $ go get https://github.com/fzipp/pythia
+    $ go install github.com/fzipp/pythia@latest
 
 You will now find a `pythia` binary in your `$GOBIN` or `$GOPATH/bin` directory.
 
 Running Pythia also requires `guru`:
 
-    $ go get -u golang.org/x/tools/cmd/guru
+    $ go install golang.org/x/tools/cmd/guru@latest
 
 ## Usage
 
