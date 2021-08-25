@@ -105,7 +105,7 @@ func isForbidden(path string) bool {
 }
 
 func errorForbidden(w http.ResponseWriter) {
-	http.Error(w, "Forbidden", 403)
+	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
 // serveQuery executes a query to the guru and delivers the results
