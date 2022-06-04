@@ -60,6 +60,7 @@ Start pythia with the scope of package guru:
 Start pythia with the scope of package image/png on port 8081,
 but don't open the browser:
 % pythia -http=:8081 -open=false image/png
+
 `
 
 func main() {
@@ -74,7 +75,7 @@ func main() {
 	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
 		if err == flag.ErrHelp {
-			fmt.Println(helpMessage)
+			fmt.Print(helpMessage)
 		} else {
 			fmt.Fprint(os.Stderr, useHelp)
 		}
