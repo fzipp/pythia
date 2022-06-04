@@ -64,8 +64,8 @@ func serveSource(w http.ResponseWriter, req *http.Request) {
 // highlighted comments and an (optional) highlighted selection.
 // The request parameters are:
 //
-//   path: "/path/to/file.go"
-//   s: optional selection range like "line.col-line.col", e.g. "24.4-25.10"
+//	path: "/path/to/file.go"
+//	s: optional selection range like "line.col-line.col", e.g. "24.4-25.10"
 //
 // Returns a "403 Forbidden" status code if the requested file
 // is not within the import scope, or a "404 Not Found" if the
@@ -111,9 +111,9 @@ func errorForbidden(w http.ResponseWriter) {
 // serveQuery executes a query to the guru and delivers the results
 // in the specified format. The request parameters are:
 //
-//   mode: e.g. "describe", "callers", "freevars", ...
-//   pos: file name with byte offset(s), e.g. "/path/to/file.go:#1457,#1462"
-//   format: "json" or "plain", no "xml" at the moment
+//	mode: e.g. "describe", "callers", "freevars", ...
+//	pos: file name with byte offset(s), e.g. "/path/to/file.go:#1457,#1462"
+//	format: "json" or "plain", no "xml" at the moment
 //
 // If the application was launched in verbose mode, each query will be
 // logged like an invocation of the guru command.
