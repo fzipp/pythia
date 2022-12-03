@@ -8,7 +8,7 @@ import (
 )
 
 func TestTemplateFuncs(t *testing.T) {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"File":      &ast.File{},
 		"FileName":  "/usr/local/go/src/pkg/fmt/format.go",
 		"StdPkg":    "io/fs",
