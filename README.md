@@ -6,7 +6,7 @@
 Pythia is a browser based user interface for the Go source code guru,
 which is a tool for navigating Go code.
 
-For more information on the Go guru, see [Using Go Guru](http://golang.org/s/using-guru).
+For more information on the Go guru, see [Using Go Guru](https://go.dev/s/using-guru).
 
 ![Screenshot](https://raw.github.com/fzipp/pythia/gh-pages/images/pythia_screenshot.png)
 
