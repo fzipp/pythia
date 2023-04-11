@@ -5,7 +5,7 @@
   license that can be found in the LICENSE file.
 -->
 
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <title>Go source code guru</title>
@@ -41,13 +41,13 @@
     <script src="static/jquery-layout.min.js"></script>
     <script src="static/guru.js"></script>
     <script>
-      $(function() {
-        var paneKey = 'pythia.out.pane';
-        var pane = localStorage[paneKey] || 'east';
+      $(() => {
+        const paneKey = 'pythia.out.pane';
+        let pane = localStorage[paneKey] || 'east';
 
-        var goldenRatio = 0.382;
-        var body = $('body');
-        var layout = body.layout({
+        const goldenRatio = 0.382;
+        const body = $('body');
+        const layout = body.layout({
           applyDefaultStyles: true,
           north: {
             spacing_open: 1,
@@ -57,27 +57,29 @@
           south: {
             size: 200,
             initClosed: true,
-            initHidden: (pane != 'south')
+            initHidden: (pane !== 'south')
           },
           east: {
             size: Math.floor(body.width() * goldenRatio),
             initClosed: true,
-            initHidden: (pane != 'east')
+            initHidden: (pane !== 'east')
           }
         });
 
-        var orientations = {
-          south: { label: '▿', desc: 'Move output pane to the bottom' },
-          east: { label: '▹', desc: 'Move output pane to the right' },
+        const orientations = {
+          south: {label: '▿', desc: 'Move output pane to the bottom'},
+          east: {label: '▹', desc: 'Move output pane to the right'},
         };
 
+        const orientationButton = $('#orientation-button');
+
         function setOrientationButton(dir) {
-          var o = orientations[dir];
-          $('#orientation-button').attr('title', o.desc).html(o.label);
+          const o = orientations[dir];
+          orientationButton.attr('title', o.desc).html(o.label);
         }
 
         function otherOrientation(dir) {
-          if (dir == 'south') {
+          if (dir === 'south') {
             return 'east';
           }
           return 'south';
@@ -85,7 +87,7 @@
 
         setOrientationButton(otherOrientation(pane));
 
-        $('#orientation-button').click(function() {
+        orientationButton.click(() => {
           layout.hide(pane);
           setOrientationButton(pane);
           pane = otherOrientation(pane);
@@ -94,11 +96,11 @@
           localStorage[paneKey] = pane;
         });
 
-        var out = $('.out');
-        out.on('change', function() {
+        const out = $('.out');
+        out.on('change', () => {
           layout.open(pane);
         });
-        out.on('esc', function() {
+        out.on('esc', () => {
           layout.close(pane);
         });
         guru.init($('#source'), out, '{{.}}');
