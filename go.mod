@@ -2,7 +2,7 @@ module github.com/fzipp/pythia
 
 go 1.18
 
-require golang.org/x/tools v0.9.1
+require golang.org/x/tools v0.9.3
 
 require (
 	github.com/yuin/goldmark v1.4.13 // indirect
