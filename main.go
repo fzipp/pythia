@@ -113,11 +113,11 @@ func main() {
 }
 
 func registerHandlers() {
-	http.HandleFunc("/", serveIndex)
-	http.HandleFunc("/source", serveSource)
-	http.HandleFunc("/file", serveFile)
-	http.HandleFunc("/query", serveQuery)
-	http.Handle("/static/", http.FileServer(http.FS(staticFiles)))
+	http.HandleFunc("GET /", serveIndex)
+	http.HandleFunc("GET /source", serveSource)
+	http.HandleFunc("GET /file", serveFile)
+	http.HandleFunc("GET /query", serveQuery)
+	http.Handle("GET /static/", http.FileServer(http.FS(staticFiles)))
 }
 
 // sortedPackages returns all packages of a program, sorted by package path.
