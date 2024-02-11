@@ -6,6 +6,7 @@
 package main
 
 import (
+	"cmp"
 	"flag"
 	"fmt"
 	"go/build"
@@ -16,7 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 
 	"golang.org/x/tools/go/loader"
@@ -126,8 +127,8 @@ func sortedPackages(prog *loader.Program) []*loader.PackageInfo {
 	for _, p := range prog.AllPackages {
 		pkgs = append(pkgs, p)
 	}
-	sort.Slice(pkgs, func(i, j int) bool {
-		return pkgs[i].Pkg.Path() < pkgs[j].Pkg.Path()
+	slices.SortFunc(pkgs, func(a, b *loader.PackageInfo) int {
+		return cmp.Compare(a.Pkg.Path(), b.Pkg.Path())
 	})
 	return pkgs
 }
@@ -140,7 +141,7 @@ func scopeFiles(prog *loader.Program) []string {
 		files = append(files, f.Name())
 		return true
 	})
-	sort.Strings(files)
+	slices.Sort(files)
 	return files
 }
 
