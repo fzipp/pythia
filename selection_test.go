@@ -4,9 +4,7 @@
 
 package main
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestNthIndexByte(t *testing.T) {
 	s := []byte("xx.xxx.xxxx.xxxxx.xx.xxxxxxx.x")
