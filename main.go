@@ -7,6 +7,7 @@ package main
 
 import (
 	"cmp"
+	"errors"
 	"flag"
 	"fmt"
 	"go/build"
@@ -75,7 +76,7 @@ func main() {
 	flag.Usage = func() {}
 	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
-		if err == flag.ErrHelp {
+		if errors.Is(err, flag.ErrHelp) {
 			fmt.Print(helpMessage)
 		} else {
 			fmt.Fprint(os.Stderr, useHelp)
