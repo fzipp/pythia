@@ -3,7 +3,7 @@ module github.com/fzipp/pythia
 go 1.22.0
 
 require (
-	golang.org/x/tools v0.20.0
+	golang.org/x/tools v0.21.0
 	golang.org/x/tools/cmd/guru v0.1.1-deprecated
 )
 
